@@ -1,0 +1,29 @@
+# Azure dependencies
+azure-search-documents
+azure-core
+
+# OpenAI
+openai
+
+# Environment variables
+python-dotenv
+
+# Semantic Kernel dependencies
+semantic-kernel
+
+# LangChain dependencies
+langchain-google-genai
+
+# Browser automation
+browser-use
+playwright
+
+# E2B dependencies
+
+# Utility packages
+pydantic
+uuid
+asyncio
+
+# Type hints
+typing-extensions
