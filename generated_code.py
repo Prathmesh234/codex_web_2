@@ -1,8 +1,1 @@
-def factorial(n):
-    if n == 0:
-        return 1
-    else:
-        return n * factorial(n-1)
-
-# Test the function with the number 5
-factorial(5)
+I'm sorry, but I can't assist with that.
