@@ -1,10 +1,10 @@
 # FastAPI and server dependencies
-fastapi
-uvicorn[standard]
+fastapi==0.104.1
+uvicorn==0.24.0
 websockets
 python-dotenv
-pydantic<2.0.0
-requests
+pydantic==2.4.2
+requests==2.31.0
 
 # Browser automation
 browser-use
@@ -24,7 +24,7 @@ azure-core
 # Additional utilities
 typing-extensions
 aiohttp
-python-multipart
+python-multipart==0.0.6
 starlette
 anyio
 click

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": { "description": "Location for all resources." }
+    },
+    "registryName": {
+      "type": "string",
+      "metadata": { "description": "Name of the Azure Container Registry." }
+    },
+    "containerImage": {
+      "type": "string",
+      "metadata": { "description": "Full image name (e.g. myregistry.azurecr.io/app:latest)." }
+    },
+    "containerRegistryServer": {
+      "type": "string",
+      "metadata": { "description": "Login server for ACR (e.g. myregistry.azurecr.io)." }
+    },
+    "containerRegistryUsername": {
+      "type": "string",
+      "metadata": { "description": "ACR pull username." }
+    },
+    "containerRegistryPassword": {
+      "type": "securestring",
+      "metadata": { "description": "ACR pull password." }
+    },
+    "fileShareName": {
+      "type": "string",
+      "defaultValue": "projects",
+      "metadata": { "description": "Azure File share name for mounting code." }
+    },
+    "githubToken": {
+      "type": "securestring",
+      "metadata": { "description": "GitHub token for authentication." }
+    }
+  },
+  "variables": {
+    "storageAccountName": "[toLower(concat('sa', uniqueString(resourceGroup().id)))]",
+    "queueServiceName": "default",
+    "commandQueue": "commandqueue",
+    "responseQueue": "responsequeue"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2021-08-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "kind": "StorageV2",
+      "sku": { "name": "Standard_LRS" },
+      "properties": { "supportsHttpsTrafficOnly": true }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2021-08-01",
+      "name": "[format('{0}/default/{1}', variables('storageAccountName'), parameters('fileShareName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices/queues",
+      "apiVersion": "2021-08-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), variables('queueServiceName'), variables('commandQueue'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/queueServices/queues",
+      "apiVersion": "2021-08-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), variables('queueServiceName'), variables('responseQueue'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.ContainerInstance/containerGroups",
+      "apiVersion": "2021-09-01",
+      "name": "sandbox-container",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', variables('storageAccountName'), 'default', parameters('fileShareName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/queueServices/queues', variables('storageAccountName'), variables('queueServiceName'), variables('commandQueue'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/queueServices/queues', variables('storageAccountName'), variables('queueServiceName'), variables('responseQueue'))]"
+      ],
+      "properties": {
+        "osType": "Linux",
+        "restartPolicy": "OnFailure",
+        "ipAddress": { "type": "Public", "ports": [{ "protocol": "TCP", "port": 3000 }] },
+        "imageRegistryCredentials": [
+          {
+            "server": "[parameters('containerRegistryServer')]",
+            "username": "[parameters('containerRegistryUsername')]",
+            "password": "[parameters('containerRegistryPassword')]"
+          }
+        ],
+        "containers": [
+          {
+            "name": "sandbox",
+            "properties": {
+              "image": "[parameters('containerImage')]",
+              "resources": { "requests": { "cpu": 1, "memoryInGB": 1.5 } },
+              "ports": [{ "port": 3000 }],
+              "volumeMounts": [
+                { "name": "projects-volume", "mountPath": "/projects", "readOnly": false }
+              ],
+              "environmentVariables": [
+                {
+                  "name": "AZURE_STORAGE_CONNECTION_STRING",
+                  "secureValue": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2021-08-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]"
+                },
+                { "name": "COMMAND_QUEUE", "value": "[variables('commandQueue')]" },
+                { "name": "RESPONSE_QUEUE", "value": "[variables('responseQueue')]" },
+                {
+                  "name": "GITHUB_TOKEN",
+                  "secureValue": "[parameters('githubToken')]"
+                }
+              ]
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "projects-volume",
+            "azureFile": {
+              "shareName": "[parameters('fileShareName')]",
+              "storageAccountName": "[variables('storageAccountName')]",
+              "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2021-08-01').keys[0].value]"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "containerIPv4Address": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', 'sandbox-container')).ipAddress.ip]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountName')]"
+    },
+    "storageConnectionString": {
+      "type": "string",
+      "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2021-08-01').keys[0].value, ';EndpointSuffix=', environment().suffixes.storage)]"
+    },
+    "commandQueueName": {
+      "type": "string",
+      "value": "[variables('commandQueue')]"
+    },
+    "responseQueueName": {
+      "type": "string",
+      "value": "[variables('responseQueue')]"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+    "name": "sandbox-image",
+    "version": "1.0.0",
+    "description": "Sandbox for command execution with Azure storage integration",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "author": "Prathmesh234",
+    "license": "MIT",
+    "dependencies": {
+        "express": "^4.18.2",
+        "body-parser": "^1.20.2",
+        "@azure/storage-queue": "^12.17.0"
+    }
+}

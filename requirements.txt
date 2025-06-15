@@ -1,6 +1,7 @@
 # Azure dependencies
 azure-search-documents
 azure-core
+azure-storage-queue
 
 # OpenAI
 openai

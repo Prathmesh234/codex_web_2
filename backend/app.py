@@ -1,12 +1,18 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import asyncio
+import platform
 import os
 import sys
 import logging
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import Optional
-import platform
+from pathlib import Path
+import json
+import requests
+from codex_core.repository_manager import clone_repository
+from codex_core.kernel_agent import execute_terminal_command
+from codex_core.codex_core_agent import complete_task
 
 # Configure logging
 logging.basicConfig(
@@ -23,13 +29,13 @@ if platform.system() == "Windows":
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-# Import the start_browser_agent function
-from start_browser_agent import start_browser_agent
+# Initialize FastAPI app
+app = FastAPI(
+    title="Combined API Server",
+    description="API server combining local sandbox and browser automation functionality"
+)
 
-# Create FastAPI app
-app = FastAPI(title="Browser Agent API", description="API for running browser automation tasks")
-
-# Add CORS middleware to allow cross-origin requests
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For production, replace with specific origins
@@ -38,22 +44,94 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Define request model
+# Configuration
+SANDBOX_URL = "http://localhost:3000"
+
+# Request Models
+class CloneRequest(BaseModel):
+    git_url: str
+    project_name: str
+
+class CommandRequest(BaseModel):
+    task: str
+    project_name: Optional[str] = None
+
+class AutoAgentRequest(BaseModel):
+    git_url: str
+    command: str
+    project_name: str
+
 class BrowserTaskRequest(BaseModel):
     user_question: str
     user_name: Optional[str] = "Pluto Albert"
     end_all_sessions: Optional[bool] = False
 
-# Define response model
 class BrowserTaskResponse(BaseModel):
     live_view_url: str
     session_id: str
     status: str = "success"
     message: Optional[str] = None
 
-# Active tasks dictionary to keep track of running tasks
+# Active tasks dictionary for browser automation
 active_tasks = {}
 
+# Helper function to check container health
+def check_container_health():
+    try:
+        response = requests.get(f"{SANDBOX_URL}/health")
+        return response.ok
+    except:
+        return False
+
+# Clone Repository Endpoint
+@app.post("/clone")
+async def clone_repository_endpoint(request: CloneRequest):
+    """
+    Clone a git repository into the sandbox container
+    """
+    result = clone_repository(request.git_url, request.project_name)
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+# Execute Command Endpoint
+@app.post("/execute")
+async def execute_command(request: CommandRequest):
+    """
+    Execute a task using the codex core agent
+    """
+    try:
+        print("\n[INFO] Received execute request:")
+        print(f"Task: {request.task}")
+        print(f"Project name: {request.project_name}")
+        
+        # Use the complete_task function to execute the task
+        print("\n[INFO] Starting codex core agent...")
+        command_history = complete_task(request.task)
+        
+        if not command_history:
+            print("\n[ERROR] No commands were executed successfully")
+            raise HTTPException(status_code=500, detail="No commands were executed successfully")
+            
+        # Get the last command's output
+        last_command, last_output = command_history[-1]
+        
+        print("\n[INFO] Task completed. Final output:")
+        print("-" * 50)
+        print(last_output)
+        print("-" * 50)
+        
+        return {
+            "success": True,
+            "command_history": command_history,
+            "stdout": last_output,
+            "stderr": ""
+        }
+    except Exception as e:
+        print(f"\n[ERROR] Error in execute endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Browser Automation Endpoints
 @app.post("/api/run-browser-task", response_model=BrowserTaskResponse)
 async def run_browser_task(request: BrowserTaskRequest, background_tasks: BackgroundTasks):
     """
@@ -105,29 +183,6 @@ async def run_browser_task(request: BrowserTaskRequest, background_tasks: Backgr
             detail=f"Error running browser task: {str(e)}"
         )
 
-# Define a background task function to run browser agent
-async def run_browser_task_background(task_id: str, request: BrowserTaskRequest):
-    try:
-        live_view_url = await start_browser_agent(
-            user_task=request.user_question,
-            user_name=request.user_name,
-            end_all_sessions=request.end_all_sessions
-        )
-        
-        # Update task status
-        session_id = live_view_url.split("sessionId=")[-1] if "sessionId=" in live_view_url else "unknown"
-        active_tasks[task_id] = {
-            "status": "completed",
-            "live_view_url": live_view_url,
-            "session_id": session_id
-        }
-    except Exception as e:
-        # Update task status with error
-        active_tasks[task_id] = {
-            "status": "error",
-            "error": str(e)
-        }
-
 @app.post("/api/run-browser-task-async")
 async def run_browser_task_async(request: BrowserTaskRequest, background_tasks: BackgroundTasks):
     """
@@ -155,24 +210,10 @@ async def get_task_status(task_id: str):
     
     return active_tasks[task_id]
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize resources on startup"""
-    print("Browser Agent API is starting up...")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up resources on shutdown"""
-    print("Browser Agent API is shutting down...")
-
-
 @app.post("/api/shutdown-all", response_model=dict)
 def shutdown_all_browser_sessions():
     """
     End all active Anchor Browser sessions.
-    
-    Returns:
-        A success message if all sessions were terminated successfully
     """
     try:
         logger.info("Received shutdown request for all sessions")
@@ -188,3 +229,25 @@ def shutdown_all_browser_sessions():
             status_code=500,
             detail=f"Error shutting down all browser sessions: {str(e)}"
         )
+
+# Event handlers
+@app.on_event("startup")
+async def startup_event():
+    """Initialize resources on startup"""
+    logger.info("Combined API Server is starting up...")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    logger.info("Combined API Server is shutting down...")
+
+if __name__ == "__main__":
+    import uvicorn
+    print("\n[INFO] Starting FastAPI server...")
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )
