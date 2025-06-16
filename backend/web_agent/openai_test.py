@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from pydantic import SecretStr
 from browser_use import Agent, BrowserConfig, Browser
 import asyncio
-from master_agent import master_agent
+from .master_agent import master_agent
 import platform
 
 # Load environment variables

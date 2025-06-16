@@ -10,9 +10,9 @@ from typing import Optional
 from pathlib import Path
 import json
 import requests
-from codex_core.repository_manager import clone_repository
-from codex_core.kernel_agent import execute_terminal_command
-from codex_core.codex_core_agent import complete_task
+from codex_agent.repository_manager import clone_repository
+from codex_agent.kernel_agent import execute_terminal_command
+from codex_agent.codex_core_agent import complete_task
 
 # Configure logging
 logging.basicConfig(
@@ -141,7 +141,7 @@ async def run_browser_task(request: BrowserTaskRequest, background_tasks: Backgr
     try:
         logger.info(f"Received browser task request: {request.user_question}")
         logger.info("Starting Anchor Browser session...")
-        from anchor_browser.session_management.anchor_session_start import start_anchor_session
+        from web_agent.anchor_browser.session_management.anchor_session_start import start_anchor_session
 
         # Start the browser session
         session_info = start_anchor_session()
@@ -156,7 +156,7 @@ async def run_browser_task(request: BrowserTaskRequest, background_tasks: Backgr
         # Add the task to run in background without waiting for completion
         async def run_search_background():
             try:
-                from openai_test import run_search
+                from web_agent.openai_test import run_search
                 await run_search(
                     user_task=request.user_question,
                     user_name=request.user_name,
@@ -217,7 +217,7 @@ def shutdown_all_browser_sessions():
     """
     try:
         logger.info("Received shutdown request for all sessions")
-        from anchor_browser.session_management.anchor_browser_end_all_sessions import end_all_anchor_sessions
+        from web_agent.anchor_browser.session_management.anchor_browser_end_all_sessions import end_all_anchor_sessions
         
         result = end_all_anchor_sessions()
         logger.info("All sessions shutdown successful")

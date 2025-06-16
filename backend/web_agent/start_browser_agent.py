@@ -16,9 +16,9 @@ sys.path.append(current_dir)
 sys.path.append(parent_dir)
 
 # Import necessary modules
-from anchor_browser.session_management.anchor_session_start import start_anchor_session
-from anchor_browser.session_management.anchor_browser_end_all_sessions import end_all_anchor_sessions
-from openai_test import run_search
+from .anchor_browser.session_management.anchor_session_start import start_anchor_session
+from .anchor_browser.session_management.anchor_browser_end_all_sessions import end_all_anchor_sessions
+from .openai_test import run_search
 
 async def start_browser_agent(user_task: str, user_name: str = "Pluto Albert", end_all_sessions: bool = False) -> str:
     """

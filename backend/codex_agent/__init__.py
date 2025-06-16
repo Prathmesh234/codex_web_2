@@ -1,5 +1,5 @@
 """
-Codex Core package containing core functionality for the Codex application.
+Codex Agent package containing core functionality for the Codex application.
 """
 
 from .repository_manager import clone_repository

@@ -1,6 +1,6 @@
-from ai_search_inference.ai_search_username_inference import search_user_name
-from ai_search_inference.ai_search_user_inference import search_index
-from ai_search_insert.ai_search_user_insert import insert_user_information
+from .ai_search_inference.ai_search_username_inference import search_user_name
+from .ai_search_inference.ai_search_user_inference import search_index
+from .ai_search_insert.ai_search_user_insert import insert_user_information
 from dotenv import load_dotenv
 import os
 
