@@ -1,11 +1,11 @@
 from semantic_kernel.functions.kernel_function_decorator import kernel_function
 from typing import Annotated
-from agentic_memory import get_user_information
-from ai_search_insert.ai_search_user_insert import insert_user_information
+from .agentic_memory import get_user_information
+from .ai_search_insert.ai_search_user_insert import insert_user_information
 from openai import OpenAI
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from system_prompt import MEMORY_AGENT_SYSTEM_PROMPT
+from .system_prompt import MEMORY_AGENT_SYSTEM_PROMPT
 import os
 non_persistent_list = [] 
 class Memory(BaseModel):

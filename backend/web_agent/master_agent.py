@@ -7,8 +7,8 @@ import asyncio
 from dotenv import load_dotenv
 
 # Assuming these are defined in your codebase
-from system_prompt import MASTER_AGENT_SYSTEM_PROMPT
-from kernel_plugin import MemoryPlugin
+from .system_prompt import MASTER_AGENT_SYSTEM_PROMPT
+from .kernel_plugin import MemoryPlugin
 
 async def master_agent(task: str, user_name: str):
     kernel = Kernel()

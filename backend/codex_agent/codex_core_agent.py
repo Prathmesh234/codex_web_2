@@ -8,9 +8,9 @@ from typing import List, Tuple, Optional, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
 from jinja2 import Environment, FileSystemLoader
-from codex_core.kernel_agent import execute_terminal_command
-from codex_core.models import TaskState, CommandEntry
-from codex_core.azure_queue import AzureQueueManager
+from codex_agent.kernel_agent import execute_terminal_command
+from codex_agent.models import TaskState, CommandEntry
+from codex_agent.azure_queue import AzureQueueManager
 
 # Configure logging to print to terminal
 logging.basicConfig(
@@ -18,7 +18,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),  # Print to terminal
-        logging.FileHandler('codex_core.log')  # Also save to file
+        logging.FileHandler('codex_agent.log')  # Also save to file
     ],
     force=True  # Force the configuration
 )
