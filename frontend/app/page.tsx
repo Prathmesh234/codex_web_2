@@ -1,5 +1,8 @@
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { Github } from "lucide-react";
+
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function Home() {
   return (
@@ -9,9 +12,9 @@ export default function Home() {
         <p className="text-gray-600 mb-8">
           Your intelligent assistant for web interactions
         </p>
-        <Link href="/chat" passHref>
-          <Button className="w-full py-6 text-lg">
-            Start Chatting
+        <Link href={`${apiUrl}/auth/github/login`} passHref>
+          <Button className="w-full py-6 text-lg flex items-center justify-center gap-2">
+            <Github className="h-5 w-5" /> Connect to GitHub
           </Button>
         </Link>
       </div>
