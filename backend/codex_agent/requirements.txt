@@ -1,0 +1,6 @@
+openai
+python-dotenv
+pydantic
+requests
+jinja2
+azure-storage-queue

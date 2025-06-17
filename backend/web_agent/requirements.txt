@@ -1,0 +1,9 @@
+openai
+python-dotenv
+pydantic
+langchain-google-genai
+semantic-kernel
+browser-use
+playwright
+azure-search-documents
+azure-core
