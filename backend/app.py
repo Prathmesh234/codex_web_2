@@ -3,8 +3,10 @@ import platform
 import os
 import sys
 import logging
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
 from pathlib import Path
@@ -20,6 +22,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
 
 # Set the correct event loop policy for Windows
 if platform.system() == "Windows":
@@ -46,6 +51,14 @@ app.add_middleware(
 
 # Configuration
 SANDBOX_URL = "http://localhost:3000"
+
+# GitHub OAuth configuration
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_REDIRECT_URI = os.getenv(
+    "GITHUB_REDIRECT_URI",
+    "http://localhost:8000/auth/github/callback",
+)
 
 # Request Models
 class CloneRequest(BaseModel):
@@ -230,6 +243,40 @@ def shutdown_all_browser_sessions():
             detail=f"Error shutting down all browser sessions: {str(e)}"
         )
 
+# GitHub OAuth endpoints
+@app.get("/auth/github/login")
+def github_login():
+    """Redirect the user to GitHub for authentication"""
+    if not GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="GitHub OAuth not configured")
+    params = {
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": GITHUB_REDIRECT_URI,
+        "scope": "read:user",
+    }
+    auth_url = requests.Request("GET", "https://github.com/login/oauth/authorize", params=params).prepare().url
+    return RedirectResponse(auth_url)
+
+
+@app.get("/auth/github/callback")
+def github_callback(code: str):
+    """Handle GitHub OAuth callback"""
+    token_url = "https://github.com/login/oauth/access_token"
+    data = {
+        "client_id": GITHUB_CLIENT_ID,
+        "client_secret": GITHUB_CLIENT_SECRET,
+        "code": code,
+        "redirect_uri": GITHUB_REDIRECT_URI,
+    }
+    headers = {"Accept": "application/json"}
+    response = requests.post(token_url, data=data, headers=headers)
+    if response.status_code != 200:
+        logger.error(f"GitHub token error: {response.text}")
+        raise HTTPException(status_code=500, detail="Failed to fetch access token")
+    access_token = response.json().get("access_token")
+    logger.info(f"GitHub OAuth Token: {access_token}")
+    return {"access_token": access_token}
+
 # Event handlers
 @app.on_event("startup")
 async def startup_event():
@@ -249,5 +296,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True,
-        log_level="info"
+        log_level="info",
     )

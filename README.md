@@ -81,12 +81,23 @@ The application will be available at `http://localhost:3000`
 OPENAI_API_KEY=your_openai_api_key
 GEMINI_API_KEY=your_gemini_api_key
 E2B_API_KEY=your_e2b_api_key
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+GITHUB_REDIRECT_URI=http://localhost:8000/auth/github/callback
 ```
 
 ### Frontend (.env.local)
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
+
+## GitHub OAuth on Localhost
+
+1. Create a new **OAuth App** in your GitHub account settings.
+2. Set the **Homepage URL** to `http://localhost:3000`.
+3. Set the **Authorization callback URL** to `http://localhost:8000/auth/github/callback`.
+4. Copy the generated client ID and secret into `backend/.env` using the variables above.
+
 
 ## Features
 
