@@ -3,9 +3,9 @@ import platform
 import os
 import sys
 import logging
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
@@ -15,6 +15,8 @@ import requests
 from codex_agent.repository_manager import clone_repository
 from codex_agent.kernel_agent import execute_terminal_command
 from codex_agent.codex_core_agent import complete_task
+from fastapi import Cookie
+
 
 # Configure logging
 logging.basicConfig(
@@ -40,7 +42,8 @@ app = FastAPI(
     description="API server combining local sandbox and browser automation functionality"
 )
 
-# Add CORS middleware
+# Add CORS middleware with logging
+logger.info("Setting up CORS middleware for FastAPI app")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For production, replace with specific origins
@@ -84,6 +87,12 @@ class BrowserTaskResponse(BaseModel):
     session_id: str
     status: str = "success"
     message: Optional[str] = None
+
+class OrchestratorRequest(BaseModel):
+    task: str
+    browser_count: int
+    repo_info: dict
+    github_token: Optional[str] = None
 
 # Active tasks dictionary for browser automation
 active_tasks = {}
@@ -243,39 +252,80 @@ def shutdown_all_browser_sessions():
             detail=f"Error shutting down all browser sessions: {str(e)}"
         )
 
-# GitHub OAuth endpoints
-@app.get("/auth/github/login")
-def github_login():
-    """Redirect the user to GitHub for authentication"""
-    if not GITHUB_CLIENT_ID:
-        raise HTTPException(status_code=500, detail="GitHub OAuth not configured")
-    params = {
-        "client_id": GITHUB_CLIENT_ID,
-        "redirect_uri": GITHUB_REDIRECT_URI,
-        "scope": "read:user",
-    }
-    auth_url = requests.Request("GET", "https://github.com/login/oauth/authorize", params=params).prepare().url
-    return RedirectResponse(auth_url)
+@app.get("/api/user/github-connected")
+def github_connected(request: Request):
+    # TODO: Check Appwrite session for GitHub connection status
+    # Placeholder: always return False (implement with Appwrite session check)
+    return JSONResponse({"connected": False})
 
+@app.get("/api/appwrite-test")
+def appwrite_test():
+    try:
+        # Try to get the current user (will fail if no session cookie, but proves connectivity)
+        result = account.get()
+        return {"status": "success", "user": result}
+    except Exception as e:
+        logger.error(f"Appwrite test error: {str(e)}")
+        return {"status": "error", "error": str(e)}
 
-@app.get("/auth/github/callback")
-def github_callback(code: str):
-    """Handle GitHub OAuth callback"""
-    token_url = "https://github.com/login/oauth/access_token"
-    data = {
-        "client_id": GITHUB_CLIENT_ID,
-        "client_secret": GITHUB_CLIENT_SECRET,
-        "code": code,
-        "redirect_uri": GITHUB_REDIRECT_URI,
-    }
-    headers = {"Accept": "application/json"}
-    response = requests.post(token_url, data=data, headers=headers)
-    if response.status_code != 200:
-        logger.error(f"GitHub token error: {response.text}")
-        raise HTTPException(status_code=500, detail="Failed to fetch access token")
-    access_token = response.json().get("access_token")
-    logger.info(f"GitHub OAuth Token: {access_token}")
-    return {"access_token": access_token}
+@app.post("/api/orchestrator")
+async def orchestrator_endpoint(request: OrchestratorRequest):
+    """
+    Orchestrate a task using the orchestrator agent.
+    """
+    try:
+        logger.info(f"[Orchestrator] Task: {request.task}")
+        logger.info(f"[Orchestrator] Browser Count: {request.browser_count}")
+        logger.info(f"[Orchestrator] Repo Info: {request.repo_info}")
+        logger.info(f"[Orchestrator] GitHub Token: {'Present' if request.github_token else 'Not provided'}")
+        
+        # Import and use the orchestrator
+        from orchestrator.orchestrator import run_orchestrator
+        
+        # Run the orchestrator
+        result = await run_orchestrator(
+            task_name=request.task,
+            repo_info=request.repo_info,
+            browser_count=request.browser_count,
+            github_token=request.github_token
+        )
+        
+        logger.info(f"[Orchestrator] Completed orchestration: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[Orchestrator] Error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error in orchestrator: {str(e)}"
+        )
+
+@app.get("/api/browser-session/{session_id}")
+async def get_browser_session_status(session_id: str):
+    """
+    Get the status and results of browser sessions.
+    """
+    try:
+        from orchestrator.tools import browser_sessions
+        
+        if session_id not in browser_sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        session = browser_sessions[session_id]
+        return {
+            "session_id": session_id,
+            "status": session["status"],
+            "browsers": session["browsers"],
+            "task": session["task"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting browser session status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting browser session status: {str(e)}"
+        )
 
 # Event handlers
 @app.on_event("startup")

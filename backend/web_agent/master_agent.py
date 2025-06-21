@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from .system_prompt import MASTER_AGENT_SYSTEM_PROMPT
 from .kernel_plugin import MemoryPlugin
 
-async def master_agent(task: str, user_name: str):
+async def master_agent(task: str, user_name: Optional[str] = None):
     kernel = Kernel()
     load_dotenv(".env")
     thread = ChatHistoryAgentThread()
@@ -26,7 +26,11 @@ async def master_agent(task: str, user_name: str):
     memory_plugin = MemoryPlugin()
     kernel.add_plugin(memory_plugin, plugin_name="memory_plugin")
 
-    user_input = f"The User name is {user_name} and the task is {task}"
+    # Handle optional user_name
+    if user_name:
+        user_input = f"The User name is {user_name} and the task is {task}"
+    else:
+        user_input = f"The task is {task} (no specific user name provided)"
 
     # Create the master agent with the service instance
     master_agent = ChatCompletionAgent(

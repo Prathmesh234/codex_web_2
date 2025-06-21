@@ -16,6 +16,7 @@ langchain-google-genai<0.1.0
 google-ai-generativelanguage<0.4.0
 google-api-core<3.0.0
 openai
+semantic-kernel
 
 # Azure dependencies
 azure-search-documents

@@ -76,28 +76,78 @@ The application will be available at `http://localhost:3000`
 
 ## Environment Variables
 
-### Backend (.env)
+### Backend Setup
+1. Copy `env.example` to `.env` in the root directory
+2. Fill in your API keys and configuration values
+
+### Frontend Setup  
+1. Copy `frontend/env.example` to `frontend/.env.local`
+2. Fill in your Appwrite project ID and API URL
+
+### Required Environment Variables
+
+#### Backend (.env)
 ```
-OPENAI_API_KEY=your_openai_api_key
-GEMINI_API_KEY=your_gemini_api_key
-E2B_API_KEY=your_e2b_api_key
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
+# AI/ML API Keys
+OPENAI_API_KEY=your_openai_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Browser Automation
+ANCHOR_API_KEY=your_anchor_api_key_here
+
+# GitHub OAuth
+GITHUB_CLIENT_ID=your_github_client_id_here
+GITHUB_CLIENT_SECRET=your_github_client_secret_here
 GITHUB_REDIRECT_URI=http://localhost:8000/auth/github/callback
 ```
 
-### Frontend (.env.local)
+#### Frontend (.env.local)
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_APPWRITE_PROJECT_ID=your_appwrite_project_id_here
 ```
 
-## GitHub OAuth on Localhost
+### Optional Environment Variables
+```
+# Azure AI Search (for memory features)
+AZURE_AI_SEARCH_ENDPOINT=your_azure_search_endpoint_here
+AZUREAI_SEARCH_API_KEY=your_azure_search_api_key_here
 
-1. Create a new **OAuth App** in your GitHub account settings.
-2. Set the **Homepage URL** to `http://localhost:3000`.
-3. Set the **Authorization callback URL** to `http://localhost:8000/auth/github/callback`.
-4. Copy the generated client ID and secret into `backend/.env` using the variables above.
+# E2B Sandbox (alternative to Anchor Browser)
+E2B_API_KEY=your_e2b_api_key_here
+```
 
+## API Key Setup Instructions
+
+### 1. OpenAI API Key
+- Go to [OpenAI Platform](https://platform.openai.com/api-keys)
+- Create a new API key
+- Add to `OPENAI_API_KEY`
+
+### 2. Google Gemini API Key  
+- Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+- Create a new API key
+- Add to `GEMINI_API_KEY`
+
+### 3. Anchor Browser API Key
+- Sign up at [Anchor Browser](https://anchor.browser.com)
+- Get your API key from the dashboard
+- Add to `ANCHOR_API_KEY`
+
+### 4. GitHub OAuth Setup
+1. Go to [GitHub Settings > Developer settings > OAuth Apps](https://github.com/settings/developers)
+2. Create a new OAuth App
+3. Set **Homepage URL** to `http://localhost:3000`
+4. Set **Authorization callback URL** to `http://localhost:8000/auth/github/callback`
+5. Copy Client ID and Client Secret to `.env`
+
+### 5. Appwrite Setup
+1. Go to [Appwrite Cloud](https://cloud.appwrite.io/)
+2. Create a new project
+3. Go to Settings > General and copy the Project ID
+4. Add to `NEXT_PUBLIC_APPWRITE_PROJECT_ID`
+5. In Auth > Settings, add GitHub OAuth provider
+6. Set callback URL to `http://localhost:3000/auth/success`
 
 ## Features
 

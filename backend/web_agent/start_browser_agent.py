@@ -1,7 +1,7 @@
 import sys
 import os
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import time
 import platform
 import sys, asyncio, platform
@@ -20,13 +20,13 @@ from .anchor_browser.session_management.anchor_session_start import start_anchor
 from .anchor_browser.session_management.anchor_browser_end_all_sessions import end_all_anchor_sessions
 from .openai_test import run_search
 
-async def start_browser_agent(user_task: str, user_name: str = "Pluto Albert", end_all_sessions: bool = False) -> str:
+async def start_browser_agent(user_task: str, user_name: Optional[str] = None, end_all_sessions: bool = False) -> str:
     """
     Initiates the browser using anchor_session_start and calls run_search with the CDP URL.
     
     Args:
         user_task (str): The task to perform
-        user_name (str, optional): The user name. Defaults to "Pluto Albert".
+        user_name (Optional[str]): The user name. Defaults to None.
         end_all_sessions (bool, optional): Whether to end all sessions after completion. Defaults to False.
         
     Returns:
