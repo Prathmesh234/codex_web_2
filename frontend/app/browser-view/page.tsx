@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Card } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ExternalLink, Monitor } from 'lucide-react';
 import Link from 'next/link';
@@ -100,15 +100,16 @@ export default function BrowserViewPage() {
 
       {/* Browser Grid */}
       <div className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {Object.entries(browsers).map(([browserKey, browserInfo]) => (
             <Card key={browserKey} className="overflow-hidden">
-              {/* Browser Header */}
-              <div className="bg-gray-50 px-4 py-3 border-b">
+              <CardHeader className="bg-gray-50 border-b">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Monitor className="w-4 h-4 text-gray-600" />
-                    <span className="font-medium">{browserKey}</span>
+                    <CardTitle className="text-base font-medium m-0">
+                      {browserKey}
+                    </CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500">
@@ -124,13 +125,11 @@ export default function BrowserViewPage() {
                     </a>
                   </div>
                 </div>
-                <p className="text-xs text-gray-600 mt-1 truncate">
+                <CardDescription className="mt-1 truncate">
                   {browserInfo.subtask}
-                </p>
-              </div>
-
-              {/* Browser Content */}
-              <div className="h-96">
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0 h-96">
                 {browserInfo.live_view_url.startsWith('https://mock-browser.com') ? (
                   <div className="w-full h-full bg-gray-100 flex items-center justify-center">
                     <div className="text-center">
@@ -152,7 +151,7 @@ export default function BrowserViewPage() {
                     sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
                   />
                 )}
-              </div>
+              </CardContent>
             </Card>
           ))}
         </div>

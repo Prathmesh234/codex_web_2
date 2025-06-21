@@ -107,7 +107,6 @@ export function TaskCardToDo({
             <span className="text-base font-medium truncate text-left">
               {message}
             </span>
-            {getStatusIcon()}
             <span className="text-xs text-muted-foreground">
               {getStatusText()}
             </span>
@@ -149,6 +148,7 @@ export function TaskCardToDo({
           )}
         </div>
         <div className="flex items-center gap-3 ml-auto">
+          {getStatusIcon()}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
