@@ -8,6 +8,8 @@ import asyncio
 # from .master_agent import master_agent
 import platform
 from typing import Optional
+from datetime import datetime
+from app import publish_web_agent_thought  # Import the streaming function from app.py
 
 # Load environment variables
 load_dotenv()
@@ -27,7 +29,7 @@ llm = ChatGoogleGenerativeAI(
     api_key=SecretStr(api_key),
 )
 
-async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None):
+async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None, session_id: Optional[str] = None):
     """
     Run the browser automation task with the given parameters.
     
@@ -35,6 +37,7 @@ async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = No
         user_task (str): The task to perform
         cdp_url (str): The CDP URL for browser connection
         user_name (Optional[str]): The user name. Defaults to None.
+        session_id (Optional[str]): The session id for streaming. Defaults to None.
     """
     try:
         # COMMENTED OUT: Memory agent functionality
@@ -82,11 +85,40 @@ Please proceed with collecting the necessary documentation for this task."""
             use_vision=True,
             save_conversation_path="logs/conversation"
         )
-        
-        await agent.run()
-        
+
+        async def stream_steps(agent):
+            page = await agent.browser_session.get_current_page()
+            current_url = page.url
+            history = agent.state.history
+            model_thoughts = history.model_thoughts()
+            model_actions = history.model_actions()
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            step_num = len(model_actions)
+            msg_lines = [
+                f"🔄 [{timestamp}] Step {step_num}",
+                f"🌐 URL: {current_url}",
+            ]
+            if model_thoughts:
+                msg_lines.append(f"💭 Thought: {model_thoughts[-1]}")
+            if model_actions:
+                action = model_actions[-1]
+                msg_lines.append(f"⚡ Action: {action.action}")
+                if hasattr(action, 'params') and action.params:
+                    msg_lines.append(f"📝 Params: {action.params}")
+            msg_lines.append("-" * 60)
+            msg = "\n".join(msg_lines)
+            print(msg)
+            if session_id:
+                await publish_web_agent_thought(session_id, msg)
+
+        await agent.run(
+            on_step_start=stream_steps,
+            max_steps=15
+        )
     except Exception as e:
         print(f"Error in run_search: {str(e)}")
+        if session_id:
+            await publish_web_agent_thought(session_id, f"Error: {str(e)}")
         raise
 
 

@@ -3,7 +3,7 @@ import platform
 import os
 import sys
 import logging
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends, Body
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends, Body, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from dotenv import load_dotenv
@@ -16,6 +16,8 @@ from codex_agent.repository_manager import clone_repository
 from codex_agent.kernel_agent import execute_terminal_command
 from codex_agent.codex_core_agent import complete_task
 from fastapi import Cookie
+from starlette.websockets import WebSocketState
+from contextlib import contextmanager
 
 
 # Configure logging
@@ -96,6 +98,18 @@ class OrchestratorRequest(BaseModel):
 
 # Active tasks dictionary for browser automation
 active_tasks = {}
+
+# Global dict to hold queues for streaming web agent outputs per session
+web_agent_stream_queues = {}
+
+def get_or_create_stream_queue(session_id: str):
+    if session_id not in web_agent_stream_queues:
+        web_agent_stream_queues[session_id] = asyncio.Queue()
+    return web_agent_stream_queues[session_id]
+
+async def publish_web_agent_thought(session_id: str, message: str):
+    queue = get_or_create_stream_queue(session_id)
+    await queue.put(message)
 
 # Helper function to check container health
 def check_container_health():
@@ -179,11 +193,13 @@ async def run_browser_task(request: BrowserTaskRequest, background_tasks: Backgr
         async def run_search_background():
             try:
                 from web_agent.openai_test import run_search
-                await run_search(
-                    user_task=request.user_question,
-                    user_name=request.user_name,
-                    cdp_url=cdp_url
-                )
+                with stream_print_to_web_agent(session_id):
+                    await run_search(
+                        user_task=request.user_question,
+                        user_name=request.user_name,
+                        cdp_url=cdp_url,
+                        session_id=session_id
+                    )
                 logger.info(f"Background task completed for session: {session_id}")
             except Exception as e:
                 logger.error(f"Error in background task for session {session_id}: {str(e)}", exc_info=True)
@@ -327,6 +343,22 @@ async def get_browser_session_status(session_id: str):
             detail=f"Error getting browser session status: {str(e)}"
         )
 
+@app.websocket("/ws/web-agent/{session_id}")
+async def websocket_web_agent_stream(websocket: WebSocket, session_id: str):
+    await websocket.accept()
+    queue = get_or_create_stream_queue(session_id)
+    try:
+        while True:
+            message = await queue.get()
+            if websocket.application_state != WebSocketState.CONNECTED:
+                break
+            await websocket.send_text(message)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # Optionally clean up the queue if no more clients are connected
+        pass
+
 # Event handlers
 @app.on_event("startup")
 async def startup_event():
@@ -337,6 +369,30 @@ async def startup_event():
 async def shutdown_event():
     """Clean up resources on shutdown"""
     logger.info("Combined API Server is shutting down...")
+
+@contextmanager
+def stream_print_to_web_agent(session_id):
+    class Streamer:
+        def __init__(self, orig_stdout):
+            self.orig_stdout = orig_stdout
+            self.buffer = ''
+        def write(self, s):
+            self.orig_stdout.write(s)
+            self.buffer += s
+            while '\n' in self.buffer:
+                line, self.buffer = self.buffer.split('\n', 1)
+                if line.strip():
+                    # Schedule the coroutine to run in the event loop
+                    asyncio.create_task(publish_web_agent_thought(session_id, line.strip()))
+        def flush(self):
+            self.orig_stdout.flush()
+    orig_stdout = sys.stdout
+    streamer = Streamer(orig_stdout)
+    sys.stdout = streamer
+    try:
+        yield
+    finally:
+        sys.stdout = orig_stdout
 
 if __name__ == "__main__":
     import uvicorn
