@@ -51,7 +51,8 @@ export function TaskList({ tasks, onEndTask }: TaskListProps) {
       // Navigate to browser view page with browser data
       const browsersParam = encodeURIComponent(JSON.stringify(task.browsers));
       const messageParam = encodeURIComponent(task.message);
-      router.push(`/browser-view?browsers=${browsersParam}&message=${messageParam}`);
+      const sessionParam = task.sessionId ? `&session_id=${encodeURIComponent(task.sessionId)}` : '';
+      router.push(`/browser-view?browsers=${browsersParam}&message=${messageParam}${sessionParam}`);
     }
   }
 

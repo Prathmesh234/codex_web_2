@@ -11,6 +11,7 @@ import asyncio
 import platform
 from typing import Optional
 from datetime import datetime
+from .models import WebAgentResponse
 # Import the streaming function - will be passed as parameter to avoid circular import
 
 # Load environment variables
@@ -32,6 +33,7 @@ llm = ChatGoogleGenerativeAI(
     api_key=SecretStr(api_key),
 )
 '''
+
 llm = ChatOpenAI(
     model="gpt-4o",
     temperature=0.0,
@@ -39,7 +41,8 @@ llm = ChatOpenAI(
     timeout=None,
 )
 
-async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None, session_id: Optional[str] = None, publish_thought_func=None):
+
+async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None, session_id: Optional[str] = None, publish_thought_func=None) -> WebAgentResponse:
     """
     Run the browser automation task with the given parameters.
     
@@ -48,6 +51,9 @@ async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = No
         cdp_url (str): The CDP URL for browser connection
         user_name (Optional[str]): The user name. Defaults to None.
         session_id (Optional[str]): The session id for streaming. Defaults to None.
+        
+    Returns:
+        WebAgentResponse: Structured response containing the task result and timestamp
     """
     try:
         # COMMENTED OUT: Memory agent functionality
@@ -122,14 +128,25 @@ Please proceed with collecting the necessary documentation for this task."""
             if session_id and publish_thought_func:
                 await publish_thought_func(session_id, msg)
 
-        await agent.run(
+        # Run the agent and get history
+        history = await agent.run(
             on_step_start=stream_steps,
             max_steps=15
         )
+        
+        # Get the final result from browser_use
+        final_result = history.final_result()
+        
+        # Return structured response
+        return WebAgentResponse(response=final_result)
+        
     except Exception as e:
-        print(f"Error in run_search: {str(e)}")
+        error_msg = f"Error in run_search: {str(e)}"
+        print(error_msg)
         if session_id and publish_thought_func:
             await publish_thought_func(session_id, f"Error: {str(e)}")
-        raise
+        
+        # Return error response in structured format
+        return WebAgentResponse(response=f"Task failed: {error_msg}")
 
 

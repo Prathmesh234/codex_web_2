@@ -55,14 +55,8 @@ class OrchestratorTools:
                         logger.info(f"Browser {browser_index} started - Session ID: {browser_session_id}, Live View: {live_view_url}")
                         
                     except Exception as anchor_error:
-                        logger.warning(f"Anchor browser failed: {str(anchor_error)}. Using mock session.")
-                        
-                        # Create mock browser session for testing
-                        browser_session_id = f"mock_session_{session_id}_{browser_index}"
-                        live_view_url = f"https://mock-browser.com/session/{browser_session_id}"
-                        cdp_url = f"ws://mock-browser.com/cdp/{browser_session_id}"
-                        
-                        logger.info(f"Mock browser {browser_index} created - Session ID: {browser_session_id}, Live View: {live_view_url}")
+                        logger.error(f"Anchor browser failed: {str(anchor_error)}.")
+                        raise  # Propagate the error instead of using a mock session
                     
                     # Create subtask for this browser
                     subtask = self._create_subtask(task, browser_index, browser_count)
@@ -173,49 +167,22 @@ class OrchestratorTools:
         try:
             # Check if this is a mock session
             if cdp_url.startswith("ws://mock-browser.com"):
-                logger.info(f"Mock browser session detected for browser {browser_index}, simulating documentation collection")
-                
-                # Simulate documentation collection for mock session
-                import asyncio
-                await asyncio.sleep(5)  # Simulate some processing time
-                
-                mock_documentation = f"""
-                MOCK DOCUMENTATION COLLECTION COMPLETED
-                
-                Task: {subtask}
-                Browser: {browser_index}
-                Session: {session_id}
-                
-                Simulated documentation collected:
-                - Official documentation sources
-                - API references and examples
-                - Best practices and tutorials
-                - Community resources
-                
-                This is a mock result for testing purposes.
-                """
-                
-                # Update session with mock results
-                if session_id in browser_sessions:
-                    browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["documentation"] = mock_documentation
-                    browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["status"] = "completed"
-                
-                logger.info(f"Mock documentation collection completed for browser {browser_index}")
-                return
+                logger.error(f"Mock browser session detected for browser {browser_index}, but mock sessions are disabled.")
+                raise RuntimeError("Mock browser sessions are disabled. Failed to start real browser session.")
             
             # Real browser session - use the actual run_search
             from web_agent.openai_test import run_search
             
             # Run the documentation collection
-            result = await run_search(
+            web_agent_response = await run_search(
                 user_task=subtask,
                 user_name=user_name,
                 cdp_url=cdp_url
             )
             
-            # Update session with results
+            # Update session with results - convert WebAgentResponse to dict
             if session_id in browser_sessions:
-                browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["documentation"] = result
+                browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["documentation"] = web_agent_response.to_dict()
                 browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["status"] = "completed"
             
             logger.info(f"Documentation collection completed for browser {browser_index}")
@@ -242,4 +209,82 @@ class OrchestratorTools:
         except Exception as e:
             logger.error(f"Error getting session status: {str(e)}")
             return json.dumps({"error": str(e)})
+    
+    @kernel_function(description="Execute a task using a container instance (local or Azure)")
+    async def container_tool(
+        self,
+        task_name: Annotated[str, "Description of the task to complete"],
+        repo_url: Annotated[str, "GitHub repository URL to clone"],
+        project_name: Annotated[str, "Name of the project/repository"],
+        container_type: Annotated[str, "Container type: 'local' or 'azure'"] = "local"
+    ) -> Annotated[str, "Task execution results and command history"]:
+        """Execute a task using a container instance similar to codex agent"""
+        try:
+            logger.info(f"Starting container tool for task: {task_name}")
+            logger.info(f"Repository: {repo_url}, Project: {project_name}, Container: {container_type}")
+            
+            # Import the codex agent functionality
+            try:
+                from codex_agent.codex_core_agent import complete_task
+                from codex_agent.azure_queue import AzureQueueManager
+                import os
+            except ImportError as e:
+                error_msg = f"Failed to import codex agent components: {str(e)}"
+                logger.error(error_msg)
+                return json.dumps({"error": error_msg})
+            
+            # Initialize Azure queue if needed
+            azure_queue = None
+            if container_type == "azure":
+                connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+                if connection_string:
+                    azure_queue = AzureQueueManager(connection_string)
+                else:
+                    logger.warning("Azure container requested but connection string not found, falling back to local")
+                    container_type = "local"
+            
+            # Override the interactive container type selection
+            def get_container_type():
+                return container_type
+            
+            # Temporarily replace the function in the codex_core_agent module
+            import codex_agent.codex_core_agent as codex_module
+            original_get_container_type = codex_module.get_container_type
+            codex_module.get_container_type = get_container_type
+            
+            try:
+                # Execute the task
+                command_history = complete_task(task_name, repo_url, project_name)
+                
+                # Format the response
+                response_data = {
+                    "task_name": task_name,
+                    "repo_url": repo_url,
+                    "project_name": project_name,
+                    "container_type": container_type,
+                    "status": "completed",
+                    "command_history": [
+                        {
+                            "command": cmd,
+                            "output": output
+                        }
+                        for cmd, output in command_history
+                    ]
+                }
+                
+                logger.info(f"Container tool completed successfully for task: {task_name}")
+                return json.dumps(response_data)
+                
+            finally:
+                # Restore the original function
+                codex_module.get_container_type = original_get_container_type
+                
+        except Exception as e:
+            error_msg = f"Error in container tool: {str(e)}"
+            logger.error(error_msg)
+            return json.dumps({
+                "error": error_msg,
+                "task_name": task_name,
+                "status": "failed"
+            })
    

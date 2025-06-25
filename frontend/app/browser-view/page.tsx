@@ -8,6 +8,7 @@ import { ArrowLeft, ExternalLink, Monitor, Maximize2, Minimize2 } from 'lucide-r
 import Link from 'next/link';
 import DarkModeToggle from '@/components/DarkModeToggle';
 import LLMThoughtStreamBar from '@/components/LLMThoughtStreamBar';
+import DocumentationDisplay from '@/components/DocumentationDisplay';
 
 interface BrowserInfo {
   live_view_url: string;
@@ -24,11 +25,15 @@ export default function BrowserViewPage() {
   const [thoughtLines, setThoughtLines] = useState<string[]>([]);
   const [waiting, setWaiting] = useState(true);
   const [expandedIframe, setExpandedIframe] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string>('');
+  const [sessionData, setSessionData] = useState<any>(null);
+  const [taskCompleted, setTaskCompleted] = useState(false);
 
   useEffect(() => {
     // Get browser data from URL parameters
     const browsersParam = searchParams?.get('browsers');
     const messageParam = searchParams?.get('message');
+    const sessionParam = searchParams?.get('session_id');
     
     if (browsersParam) {
       try {
@@ -44,8 +49,47 @@ export default function BrowserViewPage() {
       setTaskMessage(decodeURIComponent(messageParam));
     }
     
+    if (sessionParam) {
+      setSessionId(decodeURIComponent(sessionParam));
+    }
+    
     setLoading(false);
   }, [searchParams]);
+
+  // Poll session status every 10 seconds to check for task completion
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const pollSessionStatus = async () => {
+      try {
+        const response = await fetch(`/api/browser-session/${sessionId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setSessionData(data);
+          
+          // Check if all browsers are completed
+          const browserValues = Object.values(data.browsers || {});
+          const completedCount = browserValues.filter((browser: any) => 
+            browser.status === 'completed'
+          ).length;
+          
+          if (completedCount === browserValues.length && browserValues.length > 0) {
+            setTaskCompleted(true);
+          }
+        }
+      } catch (error) {
+        console.error('Error polling session status:', error);
+      }
+    };
+
+    // Initial poll
+    pollSessionStatus();
+
+    // Set up interval polling every 10 seconds
+    const interval = setInterval(pollSessionStatus, 10000);
+
+    return () => clearInterval(interval);
+  }, [sessionId]);
 
   // Listen to web agent logs via WebSocket for the first browser session (robust debug version)
   useEffect(() => {
@@ -275,6 +319,13 @@ export default function BrowserViewPage() {
           })}
         </div>
       </div>
+
+      {/* Documentation Display */}
+      <DocumentationDisplay 
+        sessionId={sessionId}
+        browsers={sessionData?.browsers || browsers}
+        taskCompleted={taskCompleted}
+      />
     </div>
   );
 } 

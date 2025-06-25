@@ -135,14 +135,17 @@ The browsers are now collecting documentation for your task.
             )
             
             logger.info(f"Browser tool result (raw): {browser_result}")
-            browser_info = self._extract_browser_info(browser_result)
-            logger.info(f"Browser tool result (parsed): {browser_info}")
+            browser_data = self._extract_full_response(browser_result)
+            browser_info = browser_data.get("browsers", {})
+            session_id = browser_data.get("session_id", "")
+            logger.info(f"Browser tool result (parsed): {browser_data}")
             
             logger.info("Orchestration completed successfully")
             return {
                 "message": "Orchestrator completed successfully",
                 "result": browser_result,
                 "browsers": browser_info,
+                "session_id": session_id,
                 "status": "success"
             }
             
@@ -154,33 +157,37 @@ The browsers are now collecting documentation for your task.
                 "browsers": {}
             }
     
-    def _extract_browser_info(self, response: str) -> Dict[str, Any]:
-        """Extract browser session information from the agent response"""
+    def _extract_full_response(self, response: str) -> Dict[str, Any]:
+        """Extract full response data including session_id and browsers"""
         try:
             # First, try to parse the entire response as JSON
             try:
                 browser_data = json.loads(response)
-                if "browsers" in browser_data:
-                    return browser_data.get("browsers", {})
+                return browser_data
             except json.JSONDecodeError:
                 pass
             
             # If not JSON, look for JSON-like structures in the response
             import re
-            json_pattern = r'\{[^{}]*"browsers"[^{}]*\}'
+            json_pattern = r'\{[^{}]*"(session_id|browsers)"[^{}]*\}'
             matches = re.findall(json_pattern, response, re.DOTALL)
             
             if matches:
                 # Try to parse the first match
                 browser_data = json.loads(matches[0])
-                return browser_data.get("browsers", {})
+                return browser_data
             
             # If no JSON found, return empty dict
             return {}
             
         except Exception as e:
-            logger.error(f"Error extracting browser info: {str(e)}")
+            logger.error(f"Error extracting response data: {str(e)}")
             return {}
+
+    def _extract_browser_info(self, response: str) -> Dict[str, Any]:
+        """Extract browser session information from the agent response"""
+        full_data = self._extract_full_response(response)
+        return full_data.get("browsers", {})
     
     async def _invoke_agent(
         self, 
