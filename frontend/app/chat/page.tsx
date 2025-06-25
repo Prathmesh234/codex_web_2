@@ -18,12 +18,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import DarkModeToggle from '@/components/DarkModeToggle';
 // @ts-ignore
 import { Client, Account, Models } from 'appwrite';
 
 const client = new Client()
-  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT)
-  .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID);
+  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "")
+  .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || "");
 const account = new Account(client);
 
 type Message = {
@@ -289,7 +290,10 @@ export default function ChatPage() {
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh' }}>
-      <div className="absolute right-4 top-4">
+      <div className="absolute right-4 top-4 flex items-center gap-2">
+        <div style={{ marginRight: '10px' }}>
+          <DarkModeToggle />
+        </div>
         <ChatButton className="p-2" onClick={handleLogout}>
           Logout
         </ChatButton>

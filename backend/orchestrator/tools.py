@@ -67,6 +67,22 @@ class OrchestratorTools:
                     # Create subtask for this browser
                     subtask = self._create_subtask(task, browser_index, browser_count)
                     
+                    # Store session parameters for WebSocket handler
+                    import sys
+                    if 'app' in sys.modules:
+                        app_module = sys.modules['app']
+                        if hasattr(app_module, 'web_agent_session_params'):
+                            app_module.web_agent_session_params[browser_session_id] = {
+                                'user_task': subtask,
+                                'user_name': user_name or "Anonymous User",
+                                'cdp_url': cdp_url
+                            }
+                            logger.info(f"Stored session params for WebSocket handler: {browser_session_id}")
+                        else:
+                            logger.warning("web_agent_session_params not found in app module")
+                    else:
+                        logger.warning("app module not loaded, cannot store session params")
+                    
                     logger.info(f"Browser {browser_index} subtask: {subtask}")
                     
                     # Start documentation collection in background

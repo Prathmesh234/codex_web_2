@@ -1,15 +1,17 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
+
 import os 
 from dotenv import load_dotenv
 from pydantic import SecretStr
-from browser_use import Agent, BrowserConfig, Browser
+from browser_use import Agent, BrowserConfig, Browser, BrowserSession
 import asyncio
 # COMMENTED OUT: Memory agent import to prevent Azure API key errors
 # from .master_agent import master_agent
 import platform
 from typing import Optional
 from datetime import datetime
-from app import publish_web_agent_thought  # Import the streaming function from app.py
+# Import the streaming function - will be passed as parameter to avoid circular import
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +22,7 @@ if not api_key:
     raise ValueError('GEMINI_API_KEY is not set')
 
 # Initialize LLM
+'''
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash-exp",
     temperature=0,
@@ -28,8 +31,15 @@ llm = ChatGoogleGenerativeAI(
     max_retries=2,
     api_key=SecretStr(api_key),
 )
+'''
+llm = ChatOpenAI(
+    model="gpt-4o",
+    temperature=0.0,
+    max_retries=2,
+    timeout=None,
+)
 
-async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None, session_id: Optional[str] = None):
+async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None, session_id: Optional[str] = None, publish_thought_func=None):
     """
     Run the browser automation task with the given parameters.
     
@@ -71,15 +81,11 @@ Please proceed with collecting the necessary documentation for this task."""
         print(f"Documentation Task: {documentation_prompt}")
         
         # Configure and initialize browser
-        config = BrowserConfig(
-            cdp_url=cdp_url,
-            headless=False,
-        )
-        browser = Browser(config=config)
+        browser =BrowserSession(cdp_url=cdp_url)
         
         # Initialize and run agent
         agent = Agent(
-            browser=browser,
+            browser_session=browser,
             task=documentation_prompt,
             llm=llm,
             use_vision=True,
@@ -92,6 +98,8 @@ Please proceed with collecting the necessary documentation for this task."""
             history = agent.state.history
             model_thoughts = history.model_thoughts()
             model_actions = history.model_actions()
+            print("[DEBUG] model_thoughts:", model_thoughts)
+            print("[DEBUG] model_actions:", model_actions)
             timestamp = datetime.now().strftime("%H:%M:%S")
             step_num = len(model_actions)
             msg_lines = [
@@ -102,14 +110,17 @@ Please proceed with collecting the necessary documentation for this task."""
                 msg_lines.append(f"💭 Thought: {model_thoughts[-1]}")
             if model_actions:
                 action = model_actions[-1]
-                msg_lines.append(f"⚡ Action: {action.action}")
-                if hasattr(action, 'params') and action.params:
-                    msg_lines.append(f"📝 Params: {action.params}")
+                # Use dict access for action fields
+                action_type = action.get('action', str(action)) if isinstance(action, dict) else getattr(action, 'action', str(action))
+                msg_lines.append(f"⚡ Action: {action_type}")
+                params = action.get('params') if isinstance(action, dict) else getattr(action, 'params', None)
+                if params:
+                    msg_lines.append(f"📝 Params: {params}")
             msg_lines.append("-" * 60)
             msg = "\n".join(msg_lines)
-            print(msg)
-            if session_id:
-                await publish_web_agent_thought(session_id, msg)
+            print("[DEBUG] Streaming message:", msg)
+            if session_id and publish_thought_func:
+                await publish_thought_func(session_id, msg)
 
         await agent.run(
             on_step_start=stream_steps,
@@ -117,8 +128,8 @@ Please proceed with collecting the necessary documentation for this task."""
         )
     except Exception as e:
         print(f"Error in run_search: {str(e)}")
-        if session_id:
-            await publish_web_agent_thought(session_id, f"Error: {str(e)}")
+        if session_id and publish_thought_func:
+            await publish_thought_func(session_id, f"Error: {str(e)}")
         raise
 
 

@@ -85,3 +85,5 @@ analyze/
 # Jest coverage reports
 coverage/
 .nyc_output/
+
+env.sh

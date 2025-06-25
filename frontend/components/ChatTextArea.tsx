@@ -33,7 +33,7 @@ const ChatTextArea: React.FC<ChatTextAreaProps> = ({
       onChange={onChange}
       onKeyDown={onKeyDown}
       placeholder={placeholder}
-      className={`w-full resize-none rounded-2xl border-gray-300 focus:border-blue-400 focus:ring focus:ring-blue-200 focus:ring-opacity-50 transition-all duration-200 shadow-md text-gray-800 font-medium min-h-[120px] ${className}`}
+      className={`w-full resize-none rounded-2xl border-gray-300 focus:border-blue-400 focus:ring focus:ring-blue-200 focus:ring-opacity-50 transition-all duration-200 shadow-md text-gray-800 font-medium min-h-[120px] dark:text-white ${className}`}
       rows={1}
       style={{
         fontSize: '1rem',

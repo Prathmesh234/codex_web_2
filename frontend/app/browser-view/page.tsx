@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ExternalLink, Monitor, Maximize2, Minimize2 } from 'lucide-react';
 import Link from 'next/link';
+import DarkModeToggle from '@/components/DarkModeToggle';
+import LLMThoughtStreamBar from '@/components/LLMThoughtStreamBar';
 
 interface BrowserInfo {
   live_view_url: string;
@@ -13,111 +15,9 @@ interface BrowserInfo {
   subtask: string;
 }
 
-// LLM Thought Stream Bar Component
-function LLMThoughtStreamBar({ lines, waiting }: { lines: string[]; waiting: boolean }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  // Only keep the last 10 lines for clarity
-  const visibleLines = lines.slice(-10);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
-    }
-  }, [lines]);
-
-  return (
-    <div
-      style={{
-        position: 'relative',
-        width: '640px',
-        height: '90px',
-        margin: '24px auto 0 auto',
-        zIndex: 50,
-        background: 'white',
-        borderRadius: '18px',
-        border: '1px solid #e5e7eb',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        overflow: 'hidden',
-        fontFamily: 'var(--font-mono, monospace)',
-      }}
-    >
-      <div
-        ref={containerRef}
-        style={{
-          flex: 1,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: waiting && lines.length === 0 ? 'center' : 'flex-end',
-          alignItems: 'center',
-          padding: '8px 18px',
-        }}
-      >
-        {waiting && lines.length === 0 ? (
-          <BouncingEllipsis />
-        ) : (
-          <div style={{ width: '100%', maxWidth: 600 }}>
-            {visibleLines.map((line, idx) => (
-              <div
-                key={idx}
-                style={{
-                  fontSize: '0.78rem',
-                  color: '#222',
-                  marginBottom: 1,
-                  whiteSpace: 'pre-wrap',
-                  textAlign: 'left',
-                  opacity: 0.95 - (visibleLines.length - idx - 1) * 0.08,
-                  transition: 'opacity 0.3s',
-                }}
-              >
-                {line}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Bouncing Ellipsis Animation
-function BouncingEllipsis() {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 40 }}>
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          style={{
-            display: 'inline-block',
-            width: 10,
-            height: 10,
-            margin: '0 4px',
-            borderRadius: '50%',
-            background: '#bbb',
-            animation: `bounce 1.2s infinite cubic-bezier(.68,-0.55,.27,1.55)`,
-            animationDelay: `${i * 0.2}s`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: translateY(0); }
-          40% { transform: translateY(-16px); }
-        }
-      `}</style>
-    </div>
-  );
-}
 
 export default function BrowserViewPage() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const [browsers, setBrowsers] = useState<Record<string, BrowserInfo>>({});
   const [taskMessage, setTaskMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -219,11 +119,12 @@ export default function BrowserViewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header (Nav bar) */}
-      <div className="bg-white border-b">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+      <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center justify-between w-full">
+            {/* Left: Back to Chat and Browser Sessions title */}
             <div className="flex items-center gap-4">
               <Link href="/chat">
                 <Button variant="outline" size="sm">
@@ -231,21 +132,31 @@ export default function BrowserViewPage() {
                   Back to Chat
                 </Button>
               </Link>
-              <div>
-                <h1 className="text-xl font-semibold">Browser Sessions</h1>
-                {taskMessage && (
-                  <p className="text-sm text-gray-600 mt-1">{taskMessage}</p>
-                )}
-              </div>
+              <h1 className="text-xl font-semibold dark:text-white whitespace-nowrap">Browser Sessions</h1>
             </div>
-            <div className="text-sm text-gray-500">
-              {Object.keys(browsers).length} browser{Object.keys(browsers).length > 1 ? 's' : ''} active
+            {/* Right: Dark mode toggle and browser count */}
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-500 dark:text-gray-300 whitespace-nowrap">
+                {Object.keys(browsers).length} browser{Object.keys(browsers).length > 1 ? 's' : ''} active
+              </span>
+              <DarkModeToggle />
             </div>
           </div>
         </div>
       </div>
-      {/* LLM Thought Stream Bar below Nav bar */}
-      <LLMThoughtStreamBar lines={thoughtLines} waiting={waiting} />
+      {/* LLM Thought Stream Bar with Task Message */}
+      <div className="relative">
+        {taskMessage && (
+          <div className="container mx-auto px-4 pt-4 pb-2">
+            <div className="flex items-center justify-center">
+              <p className="text-sm text-gray-600 dark:text-gray-300 text-center font-medium max-w-6xl break-words">
+                <span className="text-gray-500 dark:text-gray-400">Task:</span> {taskMessage}
+              </p>
+            </div>
+          </div>
+        )}
+        <LLMThoughtStreamBar lines={thoughtLines} waiting={waiting} />
+      </div>
       {/* Browser Grid */}
       <div className="container mx-auto px-4 py-6">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

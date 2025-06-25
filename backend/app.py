@@ -102,14 +102,22 @@ active_tasks = {}
 # Global dict to hold queues for streaming web agent outputs per session
 web_agent_stream_queues = {}
 
-def get_or_create_stream_queue(session_id: str):
-    if session_id not in web_agent_stream_queues:
-        web_agent_stream_queues[session_id] = asyncio.Queue()
-    return web_agent_stream_queues[session_id]
+# Remove the queue-based streaming and use direct WebSocket send for each session
+web_agent_websockets = {}  # session_id -> websocket
+
+# Add a global dict to store session parameters
+web_agent_session_params = {}  # session_id -> {user_task, user_name, cdp_url}
 
 async def publish_web_agent_thought(session_id: str, message: str):
-    queue = get_or_create_stream_queue(session_id)
-    await queue.put(message)
+    websocket = web_agent_websockets.get(session_id)
+    if websocket:
+        try:
+            if websocket.application_state == WebSocketState.CONNECTED:
+                await websocket.send_text(message)
+        except Exception as e:
+            # Remove disconnected websocket
+            if session_id in web_agent_websockets:
+                del web_agent_websockets[session_id]
 
 # Helper function to check container health
 def check_container_health():
@@ -169,10 +177,10 @@ async def execute_command(request: CommandRequest):
 
 # Browser Automation Endpoints
 @app.post("/api/run-browser-task", response_model=BrowserTaskResponse)
-async def run_browser_task(request: BrowserTaskRequest, background_tasks: BackgroundTasks):
+async def run_browser_task(request: BrowserTaskRequest):
     """
     Run a browser automation task and return immediately with the session information.
-    The actual browser automation continues in the background.
+    The actual browser automation will be started when the WebSocket connects.
     """
     try:
         logger.info(f"Received browser task request: {request.user_question}")
@@ -189,30 +197,19 @@ async def run_browser_task(request: BrowserTaskRequest, background_tasks: Backgr
         logger.info(f"CDP URL: {cdp_url}")
         logger.info(f"Live View URL: {live_view_url}")
 
-        # Add the task to run in background without waiting for completion
-        async def run_search_background():
-            try:
-                from web_agent.openai_test import run_search
-                with stream_print_to_web_agent(session_id):
-                    await run_search(
-                        user_task=request.user_question,
-                        user_name=request.user_name,
-                        cdp_url=cdp_url,
-                        session_id=session_id
-                    )
-                logger.info(f"Background task completed for session: {session_id}")
-            except Exception as e:
-                logger.error(f"Error in background task for session {session_id}: {str(e)}", exc_info=True)
+        # Store session parameters for use by the WebSocket handler
+        web_agent_session_params[session_id] = {
+            'user_task': request.user_question,
+            'user_name': request.user_name,
+            'cdp_url': cdp_url
+        }
 
-        # Schedule the background task
-        background_tasks.add_task(run_search_background)
-        
         # Return immediately with the session information
         return BrowserTaskResponse(
             live_view_url=live_view_url,
             session_id=session_id,
             status="running",
-            message="Browser session started. Task is running in the background."
+            message="Browser session started. Task will run when WebSocket connects."
         )
     except Exception as e:
         logger.error(f"Error starting browser task: {str(e)}", exc_info=True)
@@ -346,18 +343,41 @@ async def get_browser_session_status(session_id: str):
 @app.websocket("/ws/web-agent/{session_id}")
 async def websocket_web_agent_stream(websocket: WebSocket, session_id: str):
     await websocket.accept()
-    queue = get_or_create_stream_queue(session_id)
+    web_agent_websockets[session_id] = websocket
+    # Send initial connection confirmation
+    await websocket.send_text("🔗 WebSocket connection established")
+    
+    # Retrieve session parameters
+    params = web_agent_session_params.get(session_id)
+    agent_bg_task = None
+    if params:
+        from web_agent.openai_test import run_search
+        await websocket.send_text("🚀 Starting web agent task...")
+        # Start the agent as a background task
+        agent_bg_task = asyncio.create_task(run_search(
+            user_task=params['user_task'],
+            cdp_url=params['cdp_url'],
+            user_name=params['user_name'],
+            session_id=session_id,
+            publish_thought_func=publish_web_agent_thought
+        ))
+    else:
+        await websocket.send_text("❌ No session parameters found - agent will not start")
+
     try:
         while True:
-            message = await queue.get()
+            await asyncio.sleep(1)
             if websocket.application_state != WebSocketState.CONNECTED:
                 break
-            await websocket.send_text(message)
     except WebSocketDisconnect:
         pass
     finally:
-        # Optionally clean up the queue if no more clients are connected
-        pass
+        if session_id in web_agent_websockets:
+            del web_agent_websockets[session_id]
+        if session_id in web_agent_session_params:
+            del web_agent_session_params[session_id]
+        if agent_bg_task:
+            agent_bg_task.cancel()
 
 # Event handlers
 @app.on_event("startup")

@@ -104,7 +104,7 @@ export function TaskCardToDo({
       <div className="flex items-center w-full min-w-0">
         <div className="flex flex-col min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-base font-medium truncate text-left">
+            <span className="text-base font-medium truncate text-left dark:text-white">
               {message}
             </span>
             <span className="text-xs text-muted-foreground">
