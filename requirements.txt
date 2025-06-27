@@ -9,11 +9,22 @@ openai
 # Environment variables
 python-dotenv
 
+# Web framework
+fastapi
+uvicorn
+
+# HTTP requests
+requests
+
+# Template engine
+jinja2
+
 # Semantic Kernel dependencies
 semantic-kernel
 
 # LangChain dependencies
 langchain-google-genai
+langchain-openai
 
 # Browser automation
 browser-use
