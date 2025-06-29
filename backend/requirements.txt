@@ -1,31 +1,34 @@
 # FastAPI and server dependencies
-fastapi==0.104.1
-uvicorn==0.24.0
+fastapi
+uvicorn
 websockets
 python-dotenv
-pydantic==2.4.2
-requests==2.31.0
+pydantic
+requests
 
 # Browser automation
 browser-use
 playwright
 
 # AI and ML dependencies
-langchain-core<0.1.0
-langchain-google-genai<0.1.0
-google-ai-generativelanguage<0.4.0
-google-api-core<3.0.0
+langchain  # Main LangChain package, latest version
+langchain-core  # Core LangChain package, latest version
+langchain-google-genai  # Google GenAI integration, latest version
+langchain-openai  # OpenAI integration for LangChain
+google-ai-generativelanguage
+google-api-core
 openai
 semantic-kernel
 
 # Azure dependencies
 azure-search-documents
 azure-core
+azure-storage-queue
 
 # Additional utilities
 typing-extensions
 aiohttp
-python-multipart==0.0.6
+python-multipart
 starlette
 anyio
 click
@@ -34,3 +37,4 @@ httptools
 python-jose[cryptography]
 uvloop; sys_platform != "win32"
 watchfiles
+# Note: langchain-core and langchain-google-genai are now unpinned for latest compatibility.

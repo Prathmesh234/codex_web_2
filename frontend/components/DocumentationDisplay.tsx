@@ -36,9 +36,9 @@ export default function DocumentationDisplay({ sessionId, browsers, taskComplete
 
   const totalCount = Object.keys(browsers).length;
 
-  // Fetch session data when expanding
+  // Fetch session data when expanding, but only once
   const fetchSessionData = async () => {
-    if (!sessionId) return;
+    if (!sessionId || sessionData) return; // Don't fetch if we already have data
     
     setLoading(true);
     try {
@@ -46,6 +46,7 @@ export default function DocumentationDisplay({ sessionId, browsers, taskComplete
       if (response.ok) {
         const data = await response.json();
         setSessionData(data);
+        console.log('Documentation data fetched:', data);
       }
     } catch (error) {
       console.error('Error fetching session data:', error);
@@ -59,6 +60,34 @@ export default function DocumentationDisplay({ sessionId, browsers, taskComplete
       fetchSessionData();
     }
   }, [expanded, sessionId]);
+
+  // Auto-fetch session data when task is completed
+  useEffect(() => {
+    if (taskCompleted && !sessionData) {
+      fetchSessionData();
+    }
+  }, [taskCompleted]);
+
+  useEffect(() => {
+    if (taskCompleted) {
+      Object.entries(browsers).forEach(([browserKey, browserInfo]) => {
+        if (browserInfo.documentation) {
+          console.log(`Final result for ${browserKey}:`, browserInfo.documentation.response);
+        }
+      });
+    }
+  }, [taskCompleted, browsers]);
+
+  useEffect(() => {
+    if (taskCompleted && sessionData && sessionData.browsers) {
+      Object.entries(sessionData.browsers).forEach(([browserKey, browserInfo]) => {
+        const info = browserInfo as BrowserDoc;
+        if (info.documentation) {
+          console.log(`Final result for ${browserKey} (from sessionData):`, info.documentation.response);
+        }
+      });
+    }
+  }, [taskCompleted, sessionData]);
 
   // Don't show until at least one browser is completed
   if (!hasCompletedDocs && !taskCompleted) {
@@ -145,10 +174,14 @@ export default function DocumentationDisplay({ sessionId, browsers, taskComplete
                       
                       {docs ? (
                         <div className="space-y-2">
-                          <div className="bg-gray-50 dark:bg-gray-700 rounded-md p-3">
-                            <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200 font-mono">
-                              {docs.response}
-                            </pre>
+                          <div className="bg-gray-50 dark:bg-gray-700 rounded-md p-4 max-h-96 overflow-y-auto">
+                            <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
+                              {docs.response.split('\n').map((line, index) => (
+                                <div key={index} className="mb-2 last:mb-0">
+                                  {line.trim() === '' ? <br /> : line}
+                                </div>
+                              ))}
+                            </div>
                           </div>
                           <div className="text-xs text-gray-500 dark:text-gray-400">
                             Completed at: {new Date(docs.timestamp).toLocaleString()}

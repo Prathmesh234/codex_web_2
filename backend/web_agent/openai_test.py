@@ -1,5 +1,4 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI 
 
 import os 
 from dotenv import load_dotenv
@@ -22,7 +21,6 @@ api_key = os.getenv('GEMINI_API_KEY')
 if not api_key:
     raise ValueError('GEMINI_API_KEY is not set')
 
-# Initialize LLM
 '''
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash-exp",
@@ -34,6 +32,7 @@ llm = ChatGoogleGenerativeAI(
 )
 '''
 
+
 llm = ChatOpenAI(
     model="gpt-4o",
     temperature=0.0,
@@ -42,7 +41,7 @@ llm = ChatOpenAI(
 )
 
 
-async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None, session_id: Optional[str] = None, publish_thought_func=None) -> WebAgentResponse:
+async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = None, session_id: Optional[str] = None, publish_thought_func=None) -> dict:
     """
     Run the browser automation task with the given parameters.
     
@@ -53,19 +52,10 @@ async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = No
         session_id (Optional[str]): The session id for streaming. Defaults to None.
         
     Returns:
-        WebAgentResponse: Structured response containing the task result and timestamp
+        dict: Structured response containing the task result and timestamp
     """
     try:
-        # COMMENTED OUT: Memory agent functionality
-        # Get the master agent's reply
-        # master_reply = await master_agent(user_task, user_name)
-        # print(f"CDP URL: {cdp_url}")
-        # print(f"Master Agent Reply: {master_reply}")
-
-        # COMMENTED OUT: Update the task with the master agent's response
-        # updated_task = f"{user_task}. Master Agent says: {master_reply}"
-        
-        # Use the original task directly without memory processing
+   
         updated_task = user_task
         print(f"CDP URL: {cdp_url}")
         print(f"Task: {updated_task}")
@@ -74,6 +64,13 @@ async def run_search(user_task: str, cdp_url: str, user_name: Optional[str] = No
         documentation_prompt = f"""You are a helpful agent that collects documentation for the user to complete the specific task.
 
 TASK: {user_task}
+
+IMPORTANT: If the task contains \"--testing\" anywhere in the text, do NOT proceed with any web navigation or research. Simply return the following blurb of a poem about Batman and nothing else:
+
+"In Gotham's night, a shadow flies,
+A cape, a cowl, two watchful eyes.
+Justice glides on silent wings,
+The Bat, the hope that darkness brings."
 
 Your goal is to:
 1. Research and collect relevant documentation
@@ -131,14 +128,14 @@ Please proceed with collecting the necessary documentation for this task."""
         # Run the agent and get history
         history = await agent.run(
             on_step_start=stream_steps,
-            max_steps=15
+            max_steps=2
         )
         
         # Get the final result from browser_use
         final_result = history.final_result()
         
-        # Return structured response
-        return WebAgentResponse(response=final_result)
+        # Return structured response as dict for API
+        return WebAgentResponse(response=final_result).dict()
         
     except Exception as e:
         error_msg = f"Error in run_search: {str(e)}"
@@ -147,6 +144,6 @@ Please proceed with collecting the necessary documentation for this task."""
             await publish_thought_func(session_id, f"Error: {str(e)}")
         
         # Return error response in structured format
-        return WebAgentResponse(response=f"Task failed: {error_msg}")
+        return WebAgentResponse(response=f"Task failed: {error_msg}").dict()
 
 

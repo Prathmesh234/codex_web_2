@@ -30,7 +30,7 @@ export default function BrowserViewPage() {
   const [taskCompleted, setTaskCompleted] = useState(false);
 
   useEffect(() => {
-    // Get browser data from URL parameters
+    // Get browser data and session_id from URL parameters
     const browsersParam = searchParams?.get('browsers');
     const messageParam = searchParams?.get('message');
     const sessionParam = searchParams?.get('session_id');
@@ -40,6 +40,11 @@ export default function BrowserViewPage() {
         const browsersData = JSON.parse(decodeURIComponent(browsersParam));
         setBrowsers(browsersData);
         console.log('Browser data loaded:', browsersData);
+        // Always set sessionId from the session_id field in the first browser
+        const firstBrowser = Object.values(browsersData)[0] as BrowserInfo;
+        if (firstBrowser && firstBrowser.session_id) {
+          setSessionId(firstBrowser.session_id);
+        }
       } catch (error) {
         console.error('Error parsing browser data:', error);
       }
@@ -49,16 +54,12 @@ export default function BrowserViewPage() {
       setTaskMessage(decodeURIComponent(messageParam));
     }
     
-    if (sessionParam) {
-      setSessionId(decodeURIComponent(sessionParam));
-    }
-    
     setLoading(false);
   }, [searchParams]);
 
-  // Poll session status every 10 seconds to check for task completion
+  // Poll session status until task is completed, then stop
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || taskCompleted) return;
 
     const pollSessionStatus = async () => {
       try {
@@ -66,6 +67,7 @@ export default function BrowserViewPage() {
         if (response.ok) {
           const data = await response.json();
           setSessionData(data);
+          console.log('Session data received:', data);
           
           // Check if all browsers are completed
           const browserValues = Object.values(data.browsers || {});
@@ -75,6 +77,8 @@ export default function BrowserViewPage() {
           
           if (completedCount === browserValues.length && browserValues.length > 0) {
             setTaskCompleted(true);
+            console.log('All tasks completed, stopping polling');
+            return; // Stop polling
           }
         }
       } catch (error) {
@@ -85,11 +89,15 @@ export default function BrowserViewPage() {
     // Initial poll
     pollSessionStatus();
 
-    // Set up interval polling every 10 seconds
-    const interval = setInterval(pollSessionStatus, 10000);
+    // Set up interval polling every 5 seconds, but only if not completed
+    const interval = setInterval(() => {
+      if (!taskCompleted) {
+        pollSessionStatus();
+      }
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [sessionId]);
+  }, [sessionId, taskCompleted]);
 
   // Listen to web agent logs via WebSocket for the first browser session (robust debug version)
   useEffect(() => {
@@ -97,8 +105,8 @@ export default function BrowserViewPage() {
     const sessionIds = Object.values(browsers).map(b => b.session_id);
     if (sessionIds.length === 0) return;
 
-    // For debugging, just use the first session
-    const sessionId = sessionIds[0];
+    // Use the sessionId from state (set above)
+    if (!sessionId) return;
     setThoughtLines([]);
     setWaiting(true);
 
@@ -131,7 +139,7 @@ export default function BrowserViewPage() {
     return () => {
       socket.close();
     };
-  }, [JSON.stringify(browsers)]);
+  }, [browsers, sessionId]);
 
   if (loading) {
     return (

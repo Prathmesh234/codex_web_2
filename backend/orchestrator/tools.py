@@ -61,17 +61,17 @@ class OrchestratorTools:
                     # Create subtask for this browser
                     subtask = self._create_subtask(task, browser_index, browser_count)
                     
-                    # Store session parameters for WebSocket handler
+                    # Store session parameters for WebSocket handler using the main session_id, not browser_session_id
                     import sys
                     if 'app' in sys.modules:
                         app_module = sys.modules['app']
                         if hasattr(app_module, 'web_agent_session_params'):
-                            app_module.web_agent_session_params[browser_session_id] = {
+                            app_module.web_agent_session_params[session_id] = {
                                 'user_task': subtask,
                                 'user_name': user_name or "Anonymous User",
                                 'cdp_url': cdp_url
                             }
-                            logger.info(f"Stored session params for WebSocket handler: {browser_session_id}")
+                            logger.info(f"Stored session params for WebSocket handler: {session_id}")
                         else:
                             logger.warning("web_agent_session_params not found in app module")
                     else:
@@ -87,7 +87,7 @@ class OrchestratorTools:
                     return {
                         "browser_index": browser_index,
                         "live_view_url": live_view_url,
-                        "session_id": browser_session_id,
+                        "session_id": session_id,  # Use main session_id instead of browser_session_id
                         "cdp_url": cdp_url,
                         "subtask": subtask
                     }
@@ -118,7 +118,7 @@ class OrchestratorTools:
                 if "error" not in result:
                     browsers_info[f"browser_{result['browser_index']}"] = {
                         "live_view_url": result["live_view_url"],
-                        "session_id": result["session_id"],
+                        "session_id": session_id,  # Use main session_id consistently
                         "subtask": result["subtask"]
                     }
             
@@ -180,10 +180,14 @@ class OrchestratorTools:
                 cdp_url=cdp_url
             )
             
-            # Update session with results - convert WebAgentResponse to dict
+            print(f"Orchestrator received response from web_agent_{browser_index}: {web_agent_response}")
+            logger.info(f"Orchestrator received response from web_agent_{browser_index}: {web_agent_response}")
+            
+            # Update session with results - store the dict directly
             if session_id in browser_sessions:
-                browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["documentation"] = web_agent_response.to_dict()
+                browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["documentation"] = web_agent_response
                 browser_sessions[session_id]["browsers"][f"browser_{browser_index}"]["status"] = "completed"
+                print(f"Orchestrator stored results for browser_{browser_index} in session {session_id}")
             
             logger.info(f"Documentation collection completed for browser {browser_index}")
             
