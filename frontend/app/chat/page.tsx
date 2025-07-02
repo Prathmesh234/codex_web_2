@@ -192,15 +192,16 @@ export default function ChatPage() {
       });
       const data = await response.json();
       
-      // Update task with browser information
+      // Update task with browser information and documentation
       setTasks(prev => {
         const updatedTasks = prev.map(task => 
           task.id === taskId 
             ? { 
                 ...task, 
-                status: 'todo' as const,
+                status: data.documentation ? 'completed' as const : 'todo' as const,
                 browsers: data.browsers || {},
                 sessionId: data.session_id,
+                documentation: data.documentation,
                 isLoading: false
               }
             : task

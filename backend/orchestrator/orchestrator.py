@@ -44,63 +44,16 @@ class Orchestrator:
         self.orchestrator_tools = OrchestratorTools()
         self.kernel.add_plugin(self.orchestrator_tools, plugin_name="orchestrator_tools")
         
-        # Create the orchestrator agent
+        # Create the orchestrator agent (do not use self._get_system_prompt())
         self.agent = ChatCompletionAgent(
             service=self.service,
             kernel=self.kernel,
-            name="orchestrator_agent",
-            instructions=self._get_system_prompt()
+            name="orchestrator_agent"
+            # instructions should be set from the Jinja template elsewhere
         )
         
         logger.info("Orchestrator agent initialized successfully")
     
-    def _get_system_prompt(self) -> str:
-        """Get the system prompt for the orchestrator agent"""
-        return """You are a simple orchestrator agent designed to manage browser sessions for documentation collection.
-
-**Your Core Workflow:**
-
-1. **Receive Task & Browser Count:** Get the task description and number of browsers to use
-2. **Start Browser Sessions:** Launch multiple browser sessions for documentation collection
-3. **Return Live View URLs:** Immediately return browser URLs to frontend
-4. **Monitor Progress:** Track documentation collection in background
-5. **Return Results:** Send collected documentation to frontend when complete
-
-**Available Tools:**
-
-1. `start_multiple_browser_sessions(task: str, browser_count: int, user_name: str = None)`: Start multiple browser sessions for documentation collection
-2. `get_browser_session_status(session_id: str)`: Get the status and results of browser sessions
-
-**Input Format:**
-- task_name: The description of the task to perform
-- repo_info: Repository information object (for context only)
-- browser_count: Number of browser sessions to use for the task
-- github_token: GitHub access token (for context only)
-
-**Output Requirements:**
-Your response should include:
-1. Browser session information with live view URLs
-2. Session ID for tracking progress
-3. Simple confirmation that browsers are starting
-
-**Example Response Format:**
-```
-BROWSER SESSIONS STARTED:
-[Browser session information with live view URLs]
-
-SESSION ID: [session_id]
-STATUS: [running/starting]
-
-The browsers are now collecting documentation for your task.
-```
-
-**Important Notes:**
-- Always start browser sessions first for documentation collection
-- Return live view URLs immediately to the frontend
-- Focus only on documentation collection, not task completion
-- Each browser should visit 1-2 high-quality sources
-- Keep the response simple and focused on browser management"""
-
     async def orchestrate_task(
         self, 
         task_name: str, 
@@ -138,6 +91,11 @@ The browsers are now collecting documentation for your task.
             browser_data = self._extract_full_response(browser_result)
             browser_info = browser_data.get("browsers", {})
             session_id = browser_data.get("session_id", "")
+            documentation = browser_data.get("documentation", {})
+            
+            # Print the documentation response received from the tool
+            print(f"Orchestrator agent received documentation response from tool: {documentation}")
+            
             logger.info(f"Browser tool result (parsed): {browser_data}")
             
             logger.info("Orchestration completed successfully")
@@ -146,6 +104,7 @@ The browsers are now collecting documentation for your task.
                 "result": browser_result,
                 "browsers": browser_info,
                 "session_id": session_id,
+                "documentation": documentation,
                 "status": "success"
             }
             

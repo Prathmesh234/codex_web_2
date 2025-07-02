@@ -25,6 +25,7 @@ export interface Task {
   }>
   sessionId?: string
   isLoading?: boolean
+  documentation?: Record<string, any>
 }
 
 interface TaskListProps {
@@ -99,6 +100,9 @@ export function TaskList({ tasks, onEndTask }: TaskListProps) {
                 repoName={task.repoName}
                 branchName={task.branchName}
                 browserCount={task.browserCount}
+                sessionId={task.sessionId}
+                browsers={task.browsers}
+                documentation={task.documentation}
               />
             </div>
           ) : (

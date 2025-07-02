@@ -92,7 +92,7 @@ class BrowserTaskResponse(BaseModel):
 
 class OrchestratorRequest(BaseModel):
     task: str
-    browser_count: int
+    browser_count: Optional[int] = None
     repo_info: dict
     github_token: Optional[str] = None
 
@@ -296,10 +296,11 @@ async def orchestrator_endpoint(request: OrchestratorRequest):
         from orchestrator.orchestrator import run_orchestrator
         
         # Run the orchestrator
+        browser_count = request.browser_count if request.browser_count is not None else 1
         result = await run_orchestrator(
             task_name=request.task,
             repo_info=request.repo_info,
-            browser_count=request.browser_count,
+            browser_count=browser_count,
             github_token=request.github_token
         )
         

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ExternalLink, Monitor, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Monitor, Maximize2, Minimize2, FileText, GitCommit } from 'lucide-react';
 import Link from 'next/link';
 import DarkModeToggle from '@/components/DarkModeToggle';
 import LLMThoughtStreamBar from '@/components/LLMThoughtStreamBar';
@@ -28,6 +28,7 @@ export default function BrowserViewPage() {
   const [sessionId, setSessionId] = useState<string>('');
   const [sessionData, setSessionData] = useState<any>(null);
   const [taskCompleted, setTaskCompleted] = useState(false);
+  const [githubToken, setGithubToken] = useState<string | null>(null);
 
   useEffect(() => {
     // Get browser data and session_id from URL parameters
@@ -186,11 +187,69 @@ export default function BrowserViewPage() {
               </Link>
               <h1 className="text-xl font-semibold dark:text-white whitespace-nowrap">Browser Sessions</h1>
             </div>
-            {/* Right: Dark mode toggle and browser count */}
+            {/* Right: Dark mode toggle, browser count, and commit button */}
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-500 dark:text-gray-300 whitespace-nowrap">
                 {Object.keys(browsers).length} browser{Object.keys(browsers).length > 1 ? 's' : ''} active
               </span>
+              
+              {/* View and Commit Documentation Button - Only show when all tasks completed */}
+              {taskCompleted && (
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      // Fetch fresh session data to get all documentation
+                      const response = await fetch(`/api/browser-session/${sessionId}`);
+                      let sessionData = null;
+                      if (response.ok) {
+                        sessionData = await response.json();
+                      }
+                      
+                      const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+                      const browsersParam = browsers ? `&browsers=${encodeURIComponent(JSON.stringify(browsers))}` : '';
+                      
+                      // Get documentation from session data if available, otherwise from browsers
+                      const documentationData: Record<string, any> = {};
+                      if (sessionData?.browsers) {
+                        Object.entries(sessionData.browsers).forEach(([key, browser]: [string, any]) => {
+                          if (browser.documentation) {
+                            documentationData[key] = browser.documentation;
+                          }
+                        });
+                      } else {
+                        // Fallback to browsers prop
+                        Object.entries(browsers).forEach(([key, browser]: [string, any]) => {
+                          if (browser.documentation) {
+                            documentationData[key] = browser.documentation;
+                          }
+                        });
+                      }
+                      
+                      const docParam = Object.keys(documentationData).length > 0 ? 
+                        `&documentation=${encodeURIComponent(JSON.stringify(documentationData))}` : '';
+                      const taskParam = sessionData?.task ? `&task=${encodeURIComponent(sessionData.task)}` : '';
+                      
+                      // When navigating to documentation-commit, include githubToken as a query param
+                      const githubTokenParam = githubToken ? `&github_token=${encodeURIComponent(githubToken)}` : '';
+                      window.location.href = `/documentation-commit${sessionParam}${browsersParam}${docParam}${taskParam}${githubTokenParam}`;
+                    } catch (error) {
+                      console.error('Error fetching session data:', error);
+                      // Fallback to basic navigation
+                      const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+                      const browsersParam = browsers ? `&browsers=${encodeURIComponent(JSON.stringify(browsers))}` : '';
+                      window.location.href = `/documentation-commit${sessionParam}${browsersParam}`;
+                    }
+                  }}
+                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden lg:inline">View & Commit Documentation</span>
+                  <span className="lg:hidden">View & Commit</span>
+                  <GitCommit className="w-4 h-4" />
+                </Button>
+              )}
+              
               <DarkModeToggle />
             </div>
           </div>
