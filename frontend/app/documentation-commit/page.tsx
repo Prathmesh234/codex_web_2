@@ -32,10 +32,21 @@ export default function DocumentationCommitPage() {
     const docParam = searchParams.get('documentation');
     const taskParam = searchParams.get('task');
     const githubTokenParam = searchParams.get('github_token');
+    const repoInfoParam = searchParams.get('repo_info');
 
     if (sessionParam) setSessionId(sessionParam);
     if (taskParam) setOriginalTask(decodeURIComponent(taskParam));
     if (githubTokenParam) setGithubToken(githubTokenParam);
+    
+    if (repoInfoParam) {
+      try {
+        const repoData = JSON.parse(decodeURIComponent(repoInfoParam));
+        setRepoInfo(repoData);
+        console.log('Repo info loaded:', repoData);
+      } catch (e) {
+        console.error('Error parsing repo info data:', e);
+      }
+    }
     
     if (browsersParam) {
       try {
@@ -106,31 +117,42 @@ export default function DocumentationCommitPage() {
     setErrorMessage('');
 
     try {
+      // Retrieve GitHub token from localStorage
+      const storedGithubToken = typeof window !== 'undefined' ? localStorage.getItem('github_token') : null;
+      
+
       // Create the pull request task with documentation
-      const pullRequestTask = `Create a pull request with the following documentation:
+      const pullRequestTask = `Create a pull request with the following documentation:\n\n${pullRequestMessage}\n\n${pullRequestDescription ? `Description: ${pullRequestDescription}` : ''}\n\nDocumentation to include:${Object.entries(documentation).map(([browserKey, docs]) => `\n--- ${browserKey.replace('_', ' ').toUpperCase()} ---\n${docs.response || 'No content'}`).join('\n')}`;
 
-${pullRequestMessage}
+      // Prepare payload
 
-${pullRequestDescription ? `Description: ${pullRequestDescription}` : ''}
-
-Documentation to include:
-${Object.entries(documentation).map(([browserKey, docs]: [string, any]) => 
-  `\n--- ${browserKey.replace('_', ' ').toUpperCase()} ---\n${docs.response || 'No content'}`
-).join('\n')}`;
+      /*
+      class OrchestratorRequest(BaseModel):
+    task: str
+    browser_count: Optional[int] = None
+    repo_info: dict
+    github_token: Optional[str] = None
+    documentation: Optional[str] = None
+    pullRequestMessage: Optional[str] = None
+    pullRequestDescription: Optional[str] = None
+      */
+   
+      const payload = {
+        task: 'Git PR Task',
+        browser_count: null,
+        repo_info: repoInfo,
+        github_token: storedGithubToken,
+        documentation: JSON.stringify(documentation),
+        pullRequestMessage,
+        pullRequestDescription,
+      };
+      console.log('Sending PR payload to /api/orchestrator:', payload);
 
       // Call the orchestrator API
       const response = await fetch("http://localhost:8000/api/orchestrator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          task: pullRequestTask,
-          browser_count: null,
-          repo_info: repoInfo,
-          github_token: githubToken,
-          documentation: JSON.stringify(documentation),
-          pullRequestMessage,
-          pullRequestDescription,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {

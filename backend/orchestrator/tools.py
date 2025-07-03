@@ -5,6 +5,9 @@ import logging
 import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+import re
+import requests, base64, time, re
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ class OrchestratorTools:
         self,
         task: Annotated[str, "The main task to collect documentation for"],
         browser_count: Annotated[int, "Number of browser sessions to start"],
-        user_name: Annotated[str, "The user name for the sessions"] = None
+        user_name: Annotated[Optional[str], "The user name for the sessions"] = None
     ) -> Annotated[str, "Browser session information with live view URLs and documentation results"]:
         """Start multiple browser sessions for documentation collection and return documentation"""
         try:
@@ -116,23 +119,7 @@ class OrchestratorTools:
                     browser_sessions[session_id]["browsers"][f"browser_{result['browser_index']}"] = result
             browser_sessions[session_id]["status"] = "running"
             
-            # Now run documentation collection and wait for completion
-            logger.info("Starting documentation collection for all browsers")
-            await asyncio.gather(*documentation_tasks)
-            
-            # Wait a moment for all results to be stored
-            await asyncio.sleep(1)
-            
-            # Collect all documentation results
-            all_documentation = {}
-            for browser_index in range(browser_count):
-                browser_key = f"browser_{browser_index}"
-                if browser_key in browser_sessions[session_id]["browsers"]:
-                    browser_data = browser_sessions[session_id]["browsers"][browser_key]
-                    if "documentation" in browser_data:
-                        all_documentation[browser_key] = browser_data["documentation"]
-            
-            # Prepare response with live view URLs and documentation
+            # Prepare response with live view URLs (do NOT wait for documentation collection)
             browsers_info = {}
             for result in browser_results:
                 if "error" not in result:
@@ -146,12 +133,29 @@ class OrchestratorTools:
             response_data = {
                 "session_id": session_id,
                 "browsers": browsers_info,
-                "status": "completed",
-                "documentation": all_documentation
+                "status": "running"
             }
             
-            logger.info(f"Returning browser session data with documentation: {response_data}")
-            logger.info(f"Documentation collected: {all_documentation}")
+            logger.info(f"Returning browser session data immediately: {response_data}")
+            
+            # Start documentation collection in the background
+            async def run_docs_bg():
+                logger.info("Starting documentation collection for all browsers (background)")
+                await asyncio.gather(*documentation_tasks)
+                # Wait a moment for all results to be stored
+                await asyncio.sleep(1)
+                # Collect all documentation results
+                all_documentation = {}
+                for browser_index in range(browser_count):
+                    browser_key = f"browser_{browser_index}"
+                    if browser_key in browser_sessions[session_id]["browsers"]:
+                        browser_data = browser_sessions[session_id]["browsers"][browser_key]
+                        if "documentation" in browser_data:
+                            all_documentation[browser_key] = browser_data["documentation"]
+                browser_sessions[session_id]["documentation"] = all_documentation
+                browser_sessions[session_id]["status"] = "completed"
+                logger.info(f"Documentation collection completed and stored for session {session_id}")
+            asyncio.create_task(run_docs_bg())
             
             return json.dumps(response_data)
             
@@ -237,155 +241,78 @@ class OrchestratorTools:
     @kernel_function(description="Create a pull request with documentation using the provided GitHub token")
     async def create_pull_request_tool(
         self,
-        github_token: Annotated[str, "GitHub access token for authentication"],
-        repo_url: Annotated[str, "GitHub repository URL to create the pull request in"],
-        documentation: Annotated[str, "Extracted documentation to include in the pull request (as a string or JSON)"],
-        commitMessage: Annotated[str, "Commit message for the pull request"],
-        commitDescription: Annotated[str, "Description for the pull request"]
-    ) -> Annotated[str, "Pull request result with PR URL as JSON string"]:
-        """Create a pull request with documentation using the GitHub API"""
-        import json
-        import base64
+        github_token: Annotated[str, "GitHub access token"],
+        repo_url: Annotated[str, "https://github.com/<owner>/<repo>"],
+        documentation: Annotated[str, "Markdown or JSON string"],
+        commitMessage: Annotated[str, "PR title"],
+        commitDescription: Annotated[str, "PR body"],
+    ) -> Annotated[str, "Pull-request URL"]:
+        """
+        Pushes `documentation.md` to a new branch and opens a PR.
+        Returns the PR URL (string) or raises an exception on error.
+        """
         import requests
-        import re
-        from urllib.parse import urlparse
-        
+        import time
+        import base64
         try:
-            logger.info(f"Starting create_pull_request_tool for repo: {repo_url}")
-            logger.info(f"GitHub Token: {'Present' if github_token else 'Missing'}")
-            logger.info(f"Commit Message: {commitMessage}")
-            logger.info(f"Pull Request Description: {commitDescription}")
-            logger.info(f"Documentation length: {len(documentation)} characters")
-            
-            if not github_token:
-                raise ValueError("GitHub token is required")
-            
-            # Parse repository URL to get owner and repo name
-            # Handle both GitHub URLs and API URLs
-            if repo_url.startswith('https://api.github.com/repos/'):
-                repo_api_url = repo_url
-                # Extract owner/repo from API URL
-                match = re.search(r'/repos/([^/]+)/([^/]+)', repo_url)
-                if not match:
-                    raise ValueError(f"Invalid GitHub API URL format: {repo_url}")
-                owner, repo = match.groups()
-            elif repo_url.startswith('https://github.com/'):
-                # Convert GitHub URL to API URL
-                parsed = urlparse(repo_url)
-                path_parts = parsed.path.strip('/').split('/')
-                if len(path_parts) < 2:
-                    raise ValueError(f"Invalid GitHub URL format: {repo_url}")
-                owner, repo = path_parts[0], path_parts[1]
-                # Remove .git suffix if present
-                if repo.endswith('.git'):
-                    repo = repo[:-4]
-                repo_api_url = f"https://api.github.com/repos/{owner}/{repo}"
-            else:
-                raise ValueError(f"Unsupported repository URL format: {repo_url}")
-            
-            logger.info(f"Repository API URL: {repo_api_url}")
-            logger.info(f"Owner: {owner}, Repo: {repo}")
-            
+            # --- derive API endpoints ---
+            match = re.match(r"https://github\.com/([^/]+)/([^/]+)", repo_url)
+            if not match:
+                return "Error creating pull request: Invalid repo_url format. Expected https://github.com/<owner>/<repo>"
+            owner, repo = match.groups()
+            repo_api = f"https://api.github.com/repos/{owner}/{repo}"
             headers = {
-                'Authorization': f'token {github_token}',
-                'Accept': 'application/vnd.github.v3+json'
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
             }
-            
-            # 1. Get latest SHA of main branch
-            main_branch = 'main'
-            try:
-                main_ref_resp = requests.get(f'{repo_api_url}/git/ref/heads/{main_branch}', headers=headers)
-                main_ref_resp.raise_for_status()
-                main_sha = main_ref_resp.json()['object']['sha']
-                logger.info(f"Main branch SHA: {main_sha}")
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 404:
-                    # Try 'master' branch as fallback
-                    main_branch = 'master'
-                    main_ref_resp = requests.get(f'{repo_api_url}/git/ref/heads/{main_branch}', headers=headers)
-                    main_ref_resp.raise_for_status()
-                    main_sha = main_ref_resp.json()['object']['sha']
-                    logger.info(f"Using master branch SHA: {main_sha}")
-                else:
-                    raise
-            
-            # 2. Create new branch
-            import time
-            timestamp = int(time.time())
-            new_branch = f'auto-doc-update-{timestamp}'
-            ref_payload = {
+
+            # --- get default branch SHA ---
+            repo_resp = requests.get(repo_api, headers=headers)
+            if not repo_resp.ok:
+                logger.error(f"GitHub API error (repo): {repo_resp.status_code} - {repo_resp.text}")
+                return f"Error fetching repo: {repo_resp.status_code} - {repo_resp.text}"
+            default_branch = repo_resp.json()["default_branch"]
+            sha_resp = requests.get(f"{repo_api}/git/ref/heads/{default_branch}", headers=headers)
+            if not sha_resp.ok:
+                logger.error(f"GitHub API error (sha): {sha_resp.status_code} - {sha_resp.text}")
+                return f"Error fetching branch SHA: {sha_resp.status_code} - {sha_resp.text}"
+            base_sha = sha_resp.json()["object"]["sha"]
+
+            # --- create temp branch ---
+            new_branch = f"auto-doc-{int(time.time())}"
+            branch_resp = requests.post(f"{repo_api}/git/refs", headers=headers, json={
                 "ref": f"refs/heads/{new_branch}",
-                "sha": main_sha
-            }
-            
-            logger.info(f"Creating branch: {new_branch}")
-            ref_resp = requests.post(f'{repo_api_url}/git/refs', headers=headers, json=ref_payload)
-            ref_resp.raise_for_status()
-            logger.info(f"Branch created successfully: {new_branch}")
-            
-            # 3. Prepare file content
-            file_path = 'documentation.md'
-            content_b64 = base64.b64encode(documentation.encode('utf-8')).decode('utf-8')
-            content_payload = {
-                'message': f"{commitMessage}\n\n{commitDescription}",
-                'content': content_b64,
-                'branch': new_branch
-            }
-            
-            logger.info(f"Committing file: {file_path}")
-            put_resp = requests.put(f'{repo_api_url}/contents/{file_path}', headers=headers, json=content_payload)
-            put_resp.raise_for_status()
-            logger.info("File committed successfully")
-            
-            # 4. Create Pull Request
-            pr_payload = {
+                "sha": base_sha,
+            })
+            if not branch_resp.ok:
+                logger.error(f"GitHub API error (branch): {branch_resp.status_code} - {branch_resp.text}")
+                return f"Error creating branch: {branch_resp.status_code} - {branch_resp.text}"
+
+            # --- add /documentation.md ---
+            content_b64 = base64.b64encode(documentation.encode()).decode()
+            file_resp = requests.put(f"{repo_api}/contents/documentation.md", headers=headers, json={
+                "message": commitMessage,
+                "content": content_b64,
+                "branch": new_branch,
+            })
+            if not file_resp.ok:
+                logger.error(f"GitHub API error (file): {file_resp.status_code} - {file_resp.text}")
+                return f"Error creating file: {file_resp.status_code} - {file_resp.text}"
+
+            # --- open PR ---
+            pr_resp = requests.post(f"{repo_api}/pulls", headers=headers, json={
                 "title": commitMessage,
                 "head": new_branch,
-                "base": main_branch,
-                "body": f"{commitDescription}\n\n---\n\nThis pull request was automatically generated with documentation collected from web research."
-            }
-            
-            logger.info("Creating pull request")
-            pr_resp = requests.post(f'{repo_api_url}/pulls', headers=headers, json=pr_payload)
-            pr_resp.raise_for_status()
-            
-            pr_data = pr_resp.json()
-            pr_url = pr_data['html_url']
-            pr_number = pr_data['number']
-            
-            logger.info(f"Pull request created successfully: {pr_url}")
-            
-            response_data = {
-                "repo_url": repo_url,
-                "status": "success",
-                "message": "Pull request created successfully",
-                "pr_url": pr_url,
-                "pr_number": pr_number,
-                "branch_name": new_branch,
-                "commitMessage": commitMessage,
-                "pullRequestDescription": commitDescription
-            }
-            
-            # Print the PR URL for the orchestrator to see
-            print(f"🔗 Pull request created: {pr_url}")
-            logger.info(f"Pull request tool completed successfully. PR URL: {pr_url}")
-            
-            return json.dumps(response_data)
-            
-        except requests.exceptions.HTTPError as e:
-            error_msg = f"GitHub API error: {e.response.status_code} - {e.response.text}"
-            logger.error(error_msg)
-            return json.dumps({
-                "error": error_msg,
-                "repo_url": repo_url,
-                "status": "failed"
+                "base": default_branch,
+                "body": commitDescription,
             })
+            if not pr_resp.ok:
+                logger.error(f"GitHub API error (PR): {pr_resp.status_code} - {pr_resp.text}")
+                return f"Error creating pull request: {pr_resp.status_code} - {pr_resp.text}"
+
+            pr = pr_resp.json()
+            return pr["html_url"]
         except Exception as e:
-            error_msg = f"Error in create_pull_request_tool: {str(e)}"
-            logger.error(error_msg)
-            return json.dumps({
-                "error": error_msg,
-                "repo_url": repo_url,
-                "status": "failed"
-            })
-   
+            logger.error(f"Error creating pull request: {str(e)}")
+            return f"Error creating pull request: {str(e)}"
+    

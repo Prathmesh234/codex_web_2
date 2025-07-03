@@ -273,7 +273,11 @@ export default function BrowserViewPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {Object.entries(browsers).map(([browserKey, browserInfo]) => {
             return (
-              <Card key={browserKey} className="overflow-hidden relative p-0 m-0 bg-white border rounded-xl shadow-sm">
+              <Card 
+key={browserKey} 
+className="overflow-hidden relative p-0 m-0 bg-white border rounded-xl shadow-sm cursor-pointer"
+onClick={() => window.open(browserInfo.live_view_url, '_blank')}
+>
                 <CardHeader className="bg-gray-50 border-b px-4 py-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">

@@ -95,6 +95,9 @@ class OrchestratorRequest(BaseModel):
     browser_count: Optional[int] = None
     repo_info: dict
     github_token: Optional[str] = None
+    documentation: Optional[str] = None
+    pullRequestMessage: Optional[str] = None
+    pullRequestDescription: Optional[str] = None
 
 # Active tasks dictionary for browser automation
 active_tasks = {}
@@ -301,7 +304,10 @@ async def orchestrator_endpoint(request: OrchestratorRequest):
             task_name=request.task,
             repo_info=request.repo_info,
             browser_count=browser_count,
-            github_token=request.github_token
+            github_token=request.github_token,
+            documentation=request.documentation,
+            pull_request_message=request.pullRequestMessage,
+            pull_request_description=request.pullRequestDescription
         )
         
         logger.info(f"[Orchestrator] Completed orchestration: {result}")

@@ -59,7 +59,10 @@ class Orchestrator:
         task_name: str, 
         repo_info: Dict[str, Any], 
         browser_count: int,
-        github_token: Optional[str] = None
+        github_token: Optional[str] = None,
+        documentation: Optional[str] = None,
+        pull_request_message: Optional[str] = None,
+        pull_request_description: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Orchestrate a task using the orchestrator agent with browser distribution.
@@ -69,6 +72,9 @@ class Orchestrator:
             repo_info (Dict[str, Any]): Repository information object from frontend
             browser_count (int): Number of browser sessions to use
             github_token (Optional[str]): GitHub access token for repository operations
+            documentation (Optional[str]): Documentation content for PR creation
+            pull_request_message (Optional[str]): PR title/message
+            pull_request_description (Optional[str]): PR description
             
         Returns:
             Dict[str, Any]: The orchestrator's response with browser URLs
@@ -79,16 +85,57 @@ class Orchestrator:
             logger.info(f"Browser count: {browser_count}")
             logger.info(f"GitHub token: {'Present' if github_token else 'Not provided'}")
             
-            # Directly call the browser tool instead of using the agent
-            logger.info("Directly calling browser tool")
-            browser_result = await self.orchestrator_tools.start_multiple_browser_sessions(
-                task=task_name,
-                browser_count=browser_count,
-                user_name=None
-            )
+            # Check if this is a PR creation request (has documentation and PR fields)
+            if documentation and pull_request_message:
+                logger.info("Detected PR creation request, calling PR creation tool")
+                # Extract repo URL from repo_info
+                repo_url = repo_info.get('cloneUrl', '') if repo_info else ''
+                
+                pr_result = await self.orchestrator_tools.create_pull_request_tool(
+                    github_token=github_token,
+                    repo_url=repo_url,
+                    documentation=documentation,
+                    commitMessage=pull_request_message,
+                    commitDescription=pull_request_description or ""
+                )
+                
+                logger.info(f"PR creation result: {pr_result}")
+                
+                # Parse the PR result if it's a JSON string
+                try:
+                    if isinstance(pr_result, str):
+                        pr_data = json.loads(pr_result)
+                    else:
+                        pr_data = pr_result
+                except json.JSONDecodeError:
+                    pr_data = {"result": pr_result}
+                
+                return {
+                    "message": "Pull request created successfully",
+                    "status": "success",
+                    "pr_url": pr_data.get("pr_url"),
+                    "result": pr_data,
+                    "browsers": {},
+                    "documentation": {}
+                }
+            else:
+                # Regular browser session for documentation collection
+                logger.info("Directly calling browser tool")
+                browser_result = await self.orchestrator_tools.start_multiple_browser_sessions(
+                    task=task_name,
+                    browser_count=browser_count,
+                    user_name=None
+                )
             
             logger.info(f"Browser tool result (raw): {browser_result}")
-            browser_data = self._extract_full_response(browser_result)
+            
+            # The tool returns a JSON string, so we need to parse it
+            try:
+                browser_data = json.loads(browser_result)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse browser_result JSON: {e}")
+                raise ValueError("Received invalid JSON from browser tool")
+
             browser_info = browser_data.get("browsers", {})
             session_id = browser_data.get("session_id", "")
             documentation = browser_data.get("documentation", {})
@@ -99,9 +146,9 @@ class Orchestrator:
             logger.info(f"Browser tool result (parsed): {browser_data}")
             
             logger.info("Orchestration completed successfully")
+            # Return the parsed data in the format the frontend expects
             return {
                 "message": "Orchestrator completed successfully",
-                "result": browser_result,
                 "browsers": browser_info,
                 "session_id": session_id,
                 "documentation": documentation,
@@ -181,7 +228,7 @@ class Orchestrator:
         return response.strip() if response else None
 
 # Convenience function for easy usage
-async def run_orchestrator(task_name: str, repo_info: Dict[str, Any], browser_count: int, github_token: Optional[str] = None) -> Dict[str, Any]:
+async def run_orchestrator(task_name: str, repo_info: Dict[str, Any], browser_count: int, github_token: Optional[str] = None, documentation: Optional[str] = None, pull_request_message: Optional[str] = None, pull_request_description: Optional[str] = None) -> Dict[str, Any]:
     """
     Convenience function to run the orchestrator for a given task.
     
@@ -190,9 +237,12 @@ async def run_orchestrator(task_name: str, repo_info: Dict[str, Any], browser_co
         repo_info (Dict[str, Any]): Repository information object from frontend
         browser_count (int): Number of browser sessions to use
         github_token (Optional[str]): GitHub access token for repository operations
+        documentation (Optional[str]): Documentation content for PR creation
+        pull_request_message (Optional[str]): PR title/message
+        pull_request_description (Optional[str]): PR description
         
     Returns:
         Dict[str, Any]: The orchestrator's response with browser URLs
     """
     orchestrator = Orchestrator()
-    return await orchestrator.orchestrate_task(task_name, repo_info, browser_count, github_token)
+    return await orchestrator.orchestrate_task(task_name, repo_info, browser_count, github_token, documentation, pull_request_message, pull_request_description)

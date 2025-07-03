@@ -26,6 +26,13 @@ export interface Task {
   sessionId?: string
   isLoading?: boolean
   documentation?: Record<string, any>
+  repoInfo?: {
+    repoName: string
+    branchName: string
+    cloneUrl: string
+    fullRepoName: string
+  }
+  githubToken?: string
 }
 
 interface TaskListProps {
@@ -45,7 +52,16 @@ export function TaskList({ tasks, onEndTask }: TaskListProps) {
   const [activeTab, setActiveTab] = React.useState<TabKey>("todo")
   const router = useRouter()
 
-  const filteredTasks = tasks.filter(t => t.status === activeTab)
+  const filteredTasks = tasks.filter(t => {
+    if (activeTab === 'todo') {
+      // Show tasks that are todo, running, or error in the "To Do" tab
+      return t.status === 'todo' || t.status === 'running' || t.status === 'error'
+    }
+    return t.status === activeTab
+  })
+  
+  console.log(`TaskList - Active tab: ${activeTab}, All tasks:`, tasks.map(t => ({id: t.id, status: t.status, message: t.message})));
+  console.log(`TaskList - Filtered tasks:`, filteredTasks.map(t => ({id: t.id, status: t.status, message: t.message})));
 
   const handleCardClick = (task: Task) => {
     if (task.browsers && Object.keys(task.browsers).length > 0) {
@@ -103,6 +119,8 @@ export function TaskList({ tasks, onEndTask }: TaskListProps) {
                 sessionId={task.sessionId}
                 browsers={task.browsers}
                 documentation={task.documentation}
+                repoInfo={task.repoInfo}
+                githubToken={task.githubToken}
               />
             </div>
           ) : (

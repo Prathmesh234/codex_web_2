@@ -11,6 +11,13 @@ interface TaskCardCompletedProps {
   sessionId?: string
   browsers?: Record<string, any>
   documentation?: Record<string, any>
+  repoInfo?: {
+    repoName: string
+    branchName: string
+    cloneUrl: string
+    fullRepoName: string
+  }
+  githubToken?: string
 }
 
 export function TaskCardCompleted({ 
@@ -20,7 +27,9 @@ export function TaskCardCompleted({
   browserCount, 
   sessionId,
   browsers,
-  documentation 
+  documentation,
+  repoInfo,
+  githubToken
 }: TaskCardCompletedProps) {
   
   const handleViewAndCommitDocumentation = () => {
@@ -29,8 +38,18 @@ export function TaskCardCompleted({
     const browsersParam = browsers ? `&browsers=${encodeURIComponent(JSON.stringify(browsers))}` : '';
     const docParam = documentation ? `&documentation=${encodeURIComponent(JSON.stringify(documentation))}` : '';
     
+    // Use the passed repoInfo or fallback to constructing it
+    const repoInfoToUse = repoInfo || {
+      repoName,
+      branchName,
+      cloneUrl: `https://github.com/${repoName}.git`, // Fallback construction
+      fullRepoName: repoName
+    };
+    const repoParam = `&repo_info=${encodeURIComponent(JSON.stringify(repoInfoToUse))}`;
+    const tokenParam = githubToken ? `&github_token=${encodeURIComponent(githubToken)}` : '';
+    
     // Navigate to a new documentation commit page
-    window.location.href = `/documentation-commit${sessionParam}${browsersParam}${docParam}`;
+    window.location.href = `/documentation-commit${sessionParam}${browsersParam}${docParam}${repoParam}${tokenParam}`;
   };
 
   return (

@@ -8,7 +8,7 @@ import ChatCard from '@/components/ChatCard';
 import { RepoSelector } from '@/components/RepoSelector';
 import { BranchSelector } from '@/components/BranchSelector';
 import { BrowserCountSelector } from '@/components/BrowserCountSelector';
-import { TaskList, Task } from '@/components/TaskList';
+import { TaskList, Task, TaskStatus } from '@/components/TaskList';
 import { MoveLeft, Send } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -116,7 +116,6 @@ export default function ChatPage() {
   // Handle branch selection
   const handleBranchSelect = (branch: Branch) => {
     setSelectedBranch(branch);
-    
     // Update selectedRepoInfo when both repo and branch are selected
     if (selectedRepo) {
       const repoInfo = {
@@ -126,9 +125,10 @@ export default function ChatPage() {
         fullRepoName: selectedRepo.full_name,
       };
       setSelectedRepoInfo(repoInfo);
+      // Store repoInfo and also repoName and branchName in localStorage for cross-page access
+
       console.log('Selected repository info:', repoInfo);
     }
-    
     console.log('Selected branch:', branch);
   };
 
@@ -173,11 +173,16 @@ export default function ChatPage() {
         branchName: selectedBranch?.name || '',
         browserCount: browserCount || 1,
         isLoading: true, // Start with loading state
+        repoInfo: selectedRepoInfo || undefined, // Store full repo info, avoid null
+        githubToken: githubToken || undefined, // Store GitHub token, avoid null
       },
     ]);
     setInputValue('');
     setIsFirstMessage(false);
     
+    // Retrieve GitHub token from localStorage
+    const storedGithubToken = githubToken
+
     // Call orchestrator endpoint
     try {
       const response = await fetch("http://localhost:8000/api/orchestrator", {
@@ -187,18 +192,18 @@ export default function ChatPage() {
           task: inputValue,
           browser_count: browserCount,
           repo_info: selectedRepoInfo,
-          github_token: githubToken,
+          github_token: storedGithubToken,
         }),
       });
       const data = await response.json();
-      
-      // Update task with browser information and documentation
+      console.log('Orchestrator response:', data);
+      // Update task with browser information and set status to 'running' if browsers are present
       setTasks(prev => {
         const updatedTasks = prev.map(task => 
           task.id === taskId 
             ? { 
                 ...task, 
-                status: data.documentation ? 'completed' as const : 'todo' as const,
+                status: (data.browsers && Object.keys(data.browsers).length > 0 ? 'running' : 'todo') as TaskStatus,
                 browsers: data.browsers || {},
                 sessionId: data.session_id,
                 documentation: data.documentation,
@@ -206,13 +211,60 @@ export default function ChatPage() {
               }
             : task
         );
-        
-        // Log the updated task
-        const updatedTask = updatedTasks.find(t => t.id === taskId);
-        console.log("Updated task:", updatedTask);
-        
+        console.log('Task updated after orchestrator response:', updatedTasks.find(t => t.id === taskId));
         return updatedTasks;
       });
+      // Start polling for completion if session_id is present
+      if (data.session_id) {
+        const pollSessionStatus = async () => {
+          let completed = false;
+          while (!completed) {
+            try {
+              const resp = await fetch(`/api/browser-session/${data.session_id}`);
+              if (resp.ok) {
+                const sessionData = await resp.json();
+                console.log('Session polling response:', sessionData);
+                setTasks(prev => prev.map(task => {
+                  if (task.id === taskId) {
+                    // Only move to completed if status is completed and documentation is present
+                    if (sessionData.status === 'completed' && sessionData.documentation && Object.keys(sessionData.documentation).length > 0) {
+                      const updatedTask = {
+                        ...task,
+                        status: 'completed' as TaskStatus,
+                        documentation: sessionData.documentation,
+                        browsers: sessionData.browsers || task.browsers,
+                        isLoading: false
+                      };
+                      console.log('Task marked as completed:', updatedTask);
+                      return updatedTask;
+                    } else {
+                      // Update browsers and status if still running
+                      const updatedTask = {
+                        ...task,
+                        status: (sessionData.status === 'completed' ? 'completed' : 'running') as TaskStatus,
+                        browsers: sessionData.browsers || task.browsers,
+                        isLoading: false
+                      };
+                      console.log('Task updated during polling:', updatedTask);
+                      return updatedTask;
+                    }
+                  }
+                  return task;
+                }));
+                if (sessionData.status === 'completed' && sessionData.documentation && Object.keys(sessionData.documentation).length > 0) {
+                  completed = true;
+                  break;
+                }
+              }
+            } catch (err) {
+              console.error('Error polling session status:', err);
+              break;
+            }
+            await new Promise(res => setTimeout(res, 5000));
+          }
+        };
+        pollSessionStatus();
+      }
     } catch (err) {
       console.error("Error calling orchestrator endpoint:", err);
       // Update task status to error
@@ -241,6 +293,11 @@ export default function ChatPage() {
           const token = (session as any).providerAccessToken;
           setGithubToken(token);
           console.log('GitHub Access Token:', token);
+          // Store the token in localStorage for cross-page access
+          if (token) {
+            localStorage.setItem('github_token', token);
+            console.log("GITHUB TOKEN SET")
+          }
           
           // Fetch GitHub user information
           try {
