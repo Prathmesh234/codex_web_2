@@ -9,7 +9,7 @@ import { RepoSelector } from '@/components/RepoSelector';
 import { BranchSelector } from '@/components/BranchSelector';
 import { BrowserCountSelector } from '@/components/BrowserCountSelector';
 import { TaskList, Task, TaskStatus } from '@/components/TaskList';
-import { MoveLeft, Send } from 'lucide-react';
+import { MoveLeft, Send, KeyRound } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,6 +19,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import DarkModeToggle from '@/components/DarkModeToggle';
+import KeySidebar from '@/components/KeySidebar';
 // @ts-ignore
 import { Client, Account, Models } from 'appwrite';
 
@@ -71,6 +72,7 @@ export default function ChatPage() {
   const [browserCount, setBrowserCount] = useState<number | null>(null);
   const [reposLoading, setReposLoading] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [isKeySidebarOpen, setKeySidebarOpen] = useState(false);
 
   // Format current time
   const formatTime = () => {
@@ -349,6 +351,9 @@ export default function ChatPage() {
   return (
     <div style={{ position: 'relative', minHeight: '100vh' }}>
       <div className="absolute right-4 top-4 flex items-center gap-2">
+        <Button variant="outline" size="icon" onClick={() => setKeySidebarOpen(true)} aria-label="Manage keys">
+          <KeyRound className="w-4 h-4" />
+        </Button>
         <div style={{ marginRight: '10px' }}>
           <DarkModeToggle />
         </div>
@@ -428,6 +433,7 @@ export default function ChatPage() {
           </ChatButton>
         </Link>
       </div>
+      <KeySidebar isOpen={isKeySidebarOpen} onClose={() => setKeySidebarOpen(false)} />
     </div>
   );
 }
