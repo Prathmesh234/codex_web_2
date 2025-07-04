@@ -13,18 +13,6 @@ orchestrator can start a containerised coding agent to run tasks autonomously.
 
 ### Architecture Diagram
 
-```mermaid
-graph TD
-    UI[Next.js Frontend] -->|HTTP call| API[FastAPI Backend]
-    API --> ORCH[Orchestrator Agent]
-    ORCH --> MEM[Memory Module\n(Azure AI Search)]
-    ORCH --> BROWSER[Browser Agent(s)]
-    ORCH --> CODE[Autonomous Coding Agent]
-    BROWSER --> ORCH
-    CODE --> ORCH
-    ORCH --> API
-    API --> UI
-```
 
 The orchestrator will use a **memory module** (implemented with Azure AI Search
 and vector search) to recall past interactions and enrich new requests. Browser
