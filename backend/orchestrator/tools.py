@@ -256,7 +256,8 @@ class OrchestratorTools:
         import base64
         try:
             # --- derive API endpoints ---
-            match = re.match(r"https://github\.com/([^/]+)/([^/]+)", repo_url)
+            # Handle URLs that may include a trailing `.git`
+            match = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
             if not match:
                 return "Error creating pull request: Invalid repo_url format. Expected https://github.com/<owner>/<repo>"
             owner, repo = match.groups()
