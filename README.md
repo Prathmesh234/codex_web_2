@@ -2,6 +2,78 @@
 
 A web application that combines a chat interface with browser automation capabilities using E2B sandbox environment.
 
+## Overview
+
+This repository hosts the code for an autonomous coding assistant that can browse
+the web, gather documentation and ultimately execute code inside a container. The
+system is composed of a **Next.js** frontend and a **FastAPI** backend. The backend
+exposes an **orchestrator agent** that coordinates specialised agents such as
+browser automation and coding agents. Once documentation has been collected the
+orchestrator can start a containerised coding agent to run tasks autonomously.
+
+### Architecture Diagram
+
+```mermaid
+graph TD
+    UI[Next.js Frontend] -->|HTTP call| API[FastAPI Backend]
+    API --> ORCH[Orchestrator Agent]
+    ORCH --> MEM[Memory Module\n(Azure AI Search)]
+    ORCH --> BROWSER[Browser Agent(s)]
+    ORCH --> CODE[Autonomous Coding Agent]
+    BROWSER --> ORCH
+    CODE --> ORCH
+    ORCH --> API
+    API --> UI
+```
+
+The orchestrator will use a **memory module** (implemented with Azure AI Search
+and vector search) to recall past interactions and enrich new requests. Browser
+agents are launched via Anchor/E2B services to collect information from the web,
+while the coding agent runs inside a local or Azure container instance.
+
+### Orchestrator Agent
+
+```mermaid
+graph TD
+    ORCH[Orchestrator]
+    ORCH --> ANALYZE[Task Analyzer]
+    ORCH --> MEMORY[Memory Module]
+    ORCH --> CTRL[Agent Controller]
+    CTRL --> BROWSERS[Browser Agents]
+    CTRL --> CODEX[Codex Agent]
+    ORCH --> CONTAINERS[Container Manager]
+```
+
+The orchestrator analyses tasks, consults the memory module powered by Azure AI Search and dispatches work to browser or codex agents. The container manager launches coding agents in isolated environments.
+
+### Browser Agent
+
+```mermaid
+graph TD
+    BROWSER[Browser Agent]
+    BROWSER --> NAV[Navigator]
+    BROWSER --> EXTRACT[Data Extractor]
+    BROWSER --> SYNC[State Sync]
+    SYNC --> ORCH[Orchestrator]
+```
+
+Browser agents navigate sites, gather content and synchronise their state back to the orchestrator.
+
+### Codex Agent
+
+```mermaid
+graph TD
+    CODEX[Codex Agent]
+    CODEX --> PLAN[Task Planner]
+    CODEX --> GEN[Code Generator]
+    CODEX --> EXEC[Executor]
+    EXEC --> REPO[Repository Manager]
+    CODEX --> PR[PR Creator]
+    CODEX --> ORCH
+```
+
+The codex agent plans tasks, generates code, executes commands and can create pull requests for resulting changes.
+
 ## Project Structure
 
 ```
@@ -57,16 +129,12 @@ cd frontend
 npm install
 ```
 
-4. Set up environment variables:
-Create `.env` files in both frontend and backend directories with the necessary API keys and configurations.
-
-5. Start the backend server:
+4. Start the backend server:
 ```bash
 cd backend
 uvicorn app.main:app --reload
 ```
-
-6. Start the frontend development server:
+5. Start the frontend development server:
 ```bash
 cd frontend
 npm run dev
@@ -74,80 +142,21 @@ npm run dev
 
 The application will be available at `http://localhost:3000`
 
-## Environment Variables
+## Request Flow
 
-### Backend Setup
-1. Copy `env.example` to `.env` in the root directory
-2. Fill in your API keys and configuration values
-
-### Frontend Setup  
-1. Copy `frontend/env.example` to `frontend/.env.local`
-2. Fill in your Appwrite project ID and API URL
-
-### Required Environment Variables
-
-#### Backend (.env)
-```
-# AI/ML API Keys
-OPENAI_API_KEY=your_openai_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# Browser Automation
-ANCHOR_API_KEY=your_anchor_api_key_here
-
-# GitHub OAuth
-GITHUB_CLIENT_ID=your_github_client_id_here
-GITHUB_CLIENT_SECRET=your_github_client_secret_here
-GITHUB_REDIRECT_URI=http://localhost:8000/auth/github/callback
-```
-
-#### Frontend (.env.local)
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_APPWRITE_PROJECT_ID=your_appwrite_project_id_here
-```
-
-### Optional Environment Variables
-```
-# Azure AI Search (for memory features)
-AZURE_AI_SEARCH_ENDPOINT=your_azure_search_endpoint_here
-AZUREAI_SEARCH_API_KEY=your_azure_search_api_key_here
-
-# E2B Sandbox (alternative to Anchor Browser)
-E2B_API_KEY=your_e2b_api_key_here
-```
-
-## API Key Setup Instructions
-
-### 1. OpenAI API Key
-- Go to [OpenAI Platform](https://platform.openai.com/api-keys)
-- Create a new API key
-- Add to `OPENAI_API_KEY`
-
-### 2. Google Gemini API Key  
-- Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
-- Create a new API key
-- Add to `GEMINI_API_KEY`
-
-### 3. Anchor Browser API Key
-- Sign up at [Anchor Browser](https://anchor.browser.com)
-- Get your API key from the dashboard
-- Add to `ANCHOR_API_KEY`
-
-### 4. GitHub OAuth Setup
-1. Go to [GitHub Settings > Developer settings > OAuth Apps](https://github.com/settings/developers)
-2. Create a new OAuth App
-3. Set **Homepage URL** to `http://localhost:3000`
-4. Set **Authorization callback URL** to `http://localhost:8000/auth/github/callback`
-5. Copy Client ID and Client Secret to `.env`
-
-### 5. Appwrite Setup
-1. Go to [Appwrite Cloud](https://cloud.appwrite.io/)
-2. Create a new project
-3. Go to Settings > General and copy the Project ID
-4. Add to `NEXT_PUBLIC_APPWRITE_PROJECT_ID`
-5. In Auth > Settings, add GitHub OAuth provider
-6. Set callback URL to `http://localhost:3000/auth/success`
+1. A user submits a task through the chat interface in the frontend.
+2. The frontend sends the request to `/api/orchestrator` on the FastAPI backend.
+3. The orchestrator consults the **memory module** (Azure AI Search & vectors)
+   for relevant past context.
+4. Depending on the task the orchestrator spins up browser agents to collect
+   documentation and may launch the autonomous coding agent inside a container.
+5. Agents stream their findings back to the orchestrator which aggregates the
+   documentation.
+6. Once documentation is complete the orchestrator can trigger a container
+   running the coding agent to execute the desired changes and optionally open a
+   pull request.
+7. The backend returns session information and live view URLs which the frontend
+   displays to the user in real-time.
 
 ## Features
 
