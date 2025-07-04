@@ -65,11 +65,16 @@ export function TaskList({ tasks, onEndTask }: TaskListProps) {
 
   const handleCardClick = (task: Task) => {
     if (task.browsers && Object.keys(task.browsers).length > 0) {
-      // Navigate to browser view page with browser data
+      // Navigate to browser view page, carrying through repository info and GitHub token as well
       const browsersParam = encodeURIComponent(JSON.stringify(task.browsers));
       const messageParam = encodeURIComponent(task.message);
       const sessionParam = task.sessionId ? `&session_id=${encodeURIComponent(task.sessionId)}` : '';
-      router.push(`/browser-view?browsers=${browsersParam}&message=${messageParam}${sessionParam}`);
+      const repoParam = task.repoInfo ? `&repo_info=${encodeURIComponent(JSON.stringify(task.repoInfo))}` : '';
+      const tokenParam = task.githubToken ? `&github_token=${encodeURIComponent(task.githubToken)}` : '';
+      router.push(
+        `/browser-view?browsers=${browsersParam}&message=${messageParam}` +
+          `${sessionParam}${repoParam}${tokenParam}`
+      );
     }
   }
 

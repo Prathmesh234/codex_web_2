@@ -26,7 +26,8 @@ export default function DocumentationCommitPage() {
   const [pullRequestUrl, setPullRequestUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    // Parse URL parameters
+    console.log("DocumentationCommitPage: Parsing URL parameters...");
+
     const sessionParam = searchParams.get('session_id');
     const browsersParam = searchParams.get('browsers');
     const docParam = searchParams.get('documentation');
@@ -34,23 +35,44 @@ export default function DocumentationCommitPage() {
     const githubTokenParam = searchParams.get('github_token');
     const repoInfoParam = searchParams.get('repo_info');
 
-    if (sessionParam) setSessionId(sessionParam);
-    if (taskParam) setOriginalTask(decodeURIComponent(taskParam));
-    if (githubTokenParam) setGithubToken(githubTokenParam);
+    if (sessionParam) {
+      console.log('Received session_id:', sessionParam);
+      setSessionId(sessionParam);
+    }
+
+    if (taskParam) {
+      const decodedTask = decodeURIComponent(taskParam);
+      console.log('Received task:', decodedTask);
+      setOriginalTask(decodedTask);
+    }
+
+    if (githubTokenParam) {
+      console.log('Received github_token from URL:', githubTokenParam);
+      setGithubToken(githubTokenParam);
+    } else if (process.env.NEXT_PUBLIC_GITHUB_TOKEN) {
+      console.log('Using GitHub token from environment');
+      setGithubToken(process.env.NEXT_PUBLIC_GITHUB_TOKEN);
+    }
     
     if (repoInfoParam) {
+      console.log('Received raw repo_info param:', repoInfoParam);
       try {
         const repoData = JSON.parse(decodeURIComponent(repoInfoParam));
+        console.log('Parsed repo_info data:', repoData);
         setRepoInfo(repoData);
-        console.log('Repo info loaded:', repoData);
       } catch (e) {
-        console.error('Error parsing repo info data:', e);
+        console.error('Error parsing repo_info data:', e);
+        setErrorMessage('Could not parse repository information.');
       }
+    } else {
+      console.warn('repo_info parameter is missing from URL.');
     }
     
     if (browsersParam) {
       try {
-        setBrowsers(JSON.parse(decodeURIComponent(browsersParam)));
+        const browserData = JSON.parse(decodeURIComponent(browsersParam));
+        console.log('Received browsers data:', browserData);
+        setBrowsers(browserData);
       } catch (e) {
         console.error('Error parsing browsers data:', e);
       }
@@ -59,8 +81,8 @@ export default function DocumentationCommitPage() {
     if (docParam) {
       try {
         const docData = JSON.parse(decodeURIComponent(docParam));
+        console.log('Received documentation data:', docData);
         setDocumentation(docData);
-        console.log('Documentation loaded:', docData);
       } catch (e) {
         console.error('Error parsing documentation data:', e);
       }
@@ -107,6 +129,12 @@ export default function DocumentationCommitPage() {
   };
 
   const handleCreatePullRequest = async () => {
+    if (!repoInfo) {
+      setErrorMessage('Missing repository information. Cannot create a pull request.');
+      setCommitStatus('error');
+      return;
+    }
+
     if (!pullRequestMessage.trim()) {
       setErrorMessage('Please enter a pull request message');
       return;
@@ -117,36 +145,31 @@ export default function DocumentationCommitPage() {
     setErrorMessage('');
 
     try {
-      // Retrieve GitHub token from localStorage
-      const storedGithubToken = typeof window !== 'undefined' ? localStorage.getItem('github_token') : null;
+      // Determine which GitHub token to use (URL param, env var, or localStorage)
+      const storedGithubToken = githubToken || (typeof window !== 'undefined' ? localStorage.getItem('github_token') : null);
       
 
-      // Create the pull request task with documentation
-      const pullRequestTask = `Create a pull request with the following documentation:\n\n${pullRequestMessage}\n\n${pullRequestDescription ? `Description: ${pullRequestDescription}` : ''}\n\nDocumentation to include:${Object.entries(documentation).map(([browserKey, docs]) => `\n--- ${browserKey.replace('_', ' ').toUpperCase()} ---\n${docs.response || 'No content'}`).join('\n')}`;
+      // Build README content from collected documentation
+      const lines: string[] = ['# Automated Documentation', ''];
+      Object.entries(documentation).forEach(([key, docs]) => {
+        lines.push(`## ${key.replace('_', ' ').toUpperCase()}`);
+        lines.push(docs.response || 'No documentation content');
+        lines.push('');
+      });
+      const documentationContent = lines.join('\n');
 
-      // Prepare payload
-
-      /*
-      class OrchestratorRequest(BaseModel):
-    task: str
-    browser_count: Optional[int] = None
-    repo_info: dict
-    github_token: Optional[str] = None
-    documentation: Optional[str] = None
-    pullRequestMessage: Optional[str] = None
-    pullRequestDescription: Optional[str] = None
-      */
-   
       const payload = {
         task: 'Git PR Task',
         browser_count: null,
         repo_info: repoInfo,
         github_token: storedGithubToken,
-        documentation: JSON.stringify(documentation),
+        base: repoInfo.branchName,
+        documentation: documentationContent,
         pullRequestMessage,
         pullRequestDescription,
       };
       console.log('Sending PR payload to /api/orchestrator:', payload);
+      console.log('Orchestrator payload JSON:', JSON.stringify(payload, null, 2));
 
       // Call the orchestrator API
       const response = await fetch("http://localhost:8000/api/orchestrator", {
@@ -188,12 +211,7 @@ export default function DocumentationCommitPage() {
       
       setCommitStatus('success');
       
-      // Don't automatically redirect if we have a PR URL to show
-      if (!prUrl) {
-        setTimeout(() => {
-          router.push('/chat');
-        }, 2000);
-      }
+      // Do not auto-redirect; let the user click View Pull Request or use Back/Cancel
     } catch (error) {
       console.error('Error creating pull request:', error);
       setCommitStatus('error');

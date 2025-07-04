@@ -29,12 +29,16 @@ export default function BrowserViewPage() {
   const [sessionData, setSessionData] = useState<any>(null);
   const [taskCompleted, setTaskCompleted] = useState(false);
   const [githubToken, setGithubToken] = useState<string | null>(null);
+  const [urlRepoInfo, setUrlRepoInfo] = useState<any>(null);
+  const [urlGithubToken, setUrlGithubToken] = useState<string | null>(null);
 
   useEffect(() => {
     // Get browser data and session_id from URL parameters
     const browsersParam = searchParams?.get('browsers');
     const messageParam = searchParams?.get('message');
     const sessionParam = searchParams?.get('session_id');
+    const repoInfoParam = searchParams?.get('repo_info');
+    const githubTokenParam = searchParams?.get('github_token');
     
     if (browsersParam) {
       try {
@@ -56,6 +60,19 @@ export default function BrowserViewPage() {
     }
     
     setLoading(false);
+    if (repoInfoParam) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(repoInfoParam));
+        console.log('Received repo_info from URL:', parsed);
+        setUrlRepoInfo(parsed);
+      } catch (err) {
+        console.error('Error parsing repo_info from URL:', err);
+      }
+    }
+    if (githubTokenParam) {
+      console.log('Received github_token from URL:', githubTokenParam);
+      setUrlGithubToken(githubTokenParam);
+    }
   }, [searchParams]);
 
   // Poll session status until task is completed, then stop
@@ -230,16 +247,27 @@ export default function BrowserViewPage() {
                         `&documentation=${encodeURIComponent(JSON.stringify(documentationData))}` : '';
                       const taskParam = sessionData?.task ? `&task=${encodeURIComponent(sessionData.task)}` : '';
                       
-                      // When navigating to documentation-commit, include githubToken as a query param
-                      const githubTokenParam = githubToken ? `&github_token=${encodeURIComponent(githubToken)}` : '';
-                      window.location.href = `/documentation-commit${sessionParam}${browsersParam}${docParam}${taskParam}${githubTokenParam}`;
-                    } catch (error) {
-                      console.error('Error fetching session data:', error);
-                      // Fallback to basic navigation
-                      const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
-                      const browsersParam = browsers ? `&browsers=${encodeURIComponent(JSON.stringify(browsers))}` : '';
-                      window.location.href = `/documentation-commit${sessionParam}${browsersParam}`;
-                    }
+                      // When navigating to documentation-commit, carry repository info and GitHub token (URL-provided preferred)
+                      const githubTokenToUse = urlGithubToken || githubToken;
+                      const githubTokenParam2 = githubTokenToUse ? `&github_token=${encodeURIComponent(githubTokenToUse)}` : '';
+                      const repoInfoToUse = urlRepoInfo || sessionData?.repo_info;
+                      const repoParam2 = repoInfoToUse ? `&repo_info=${encodeURIComponent(JSON.stringify(repoInfoToUse))}` : '';
+                      window.location.href =
+                        `/documentation-commit${sessionParam}${browsersParam}${docParam}${taskParam}` +
+                        `${githubTokenParam2}${repoParam2}`;
+    } catch (error) {
+      console.error('Error fetching session data:', error);
+      // Fallback navigation, still carrying repo_info and github_token if available
+      const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+      const browsersParam = browsers ? `&browsers=${encodeURIComponent(JSON.stringify(browsers))}` : '';
+      const repoInfoToUse = urlRepoInfo || sessionData?.repo_info;
+      const repoParam = repoInfoToUse ? `&repo_info=${encodeURIComponent(JSON.stringify(repoInfoToUse))}` : '';
+      const githubTokenToUse = urlGithubToken || githubToken;
+      const tokenParam = githubTokenToUse ? `&github_token=${encodeURIComponent(githubTokenToUse)}` : '';
+      window.location.href =
+        `/documentation-commit${sessionParam}${browsersParam}` +
+        `${repoParam}${tokenParam}`;
+    }
                   }}
                   className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white"
                 >

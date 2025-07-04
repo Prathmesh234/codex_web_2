@@ -38,13 +38,12 @@ export function TaskCardCompleted({
     const browsersParam = browsers ? `&browsers=${encodeURIComponent(JSON.stringify(browsers))}` : '';
     const docParam = documentation ? `&documentation=${encodeURIComponent(JSON.stringify(documentation))}` : '';
     
-    // Use the passed repoInfo or fallback to constructing it
-    const repoInfoToUse = repoInfo || {
-      repoName,
-      branchName,
-      cloneUrl: `https://github.com/${repoName}.git`, // Fallback construction
-      fullRepoName: repoName
-    };
+    // repoInfo must be provided from the Chat page (full owner/repo identifier)
+    if (!repoInfo) {
+      console.error("TaskCardCompleted: missing repoInfo; cannot view & commit documentation.");
+      return;
+    }
+    const repoInfoToUse = repoInfo;
     const repoParam = `&repo_info=${encodeURIComponent(JSON.stringify(repoInfoToUse))}`;
     const tokenParam = githubToken ? `&github_token=${encodeURIComponent(githubToken)}` : '';
     
