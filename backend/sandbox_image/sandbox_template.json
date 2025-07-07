@@ -35,10 +35,20 @@
     "githubToken": {
       "type": "securestring",
       "metadata": { "description": "GitHub token for authentication." }
+    },
+    "containerName": {
+      "type": "string",
+      "defaultValue": "sandbox-container",
+      "metadata": { "description": "Name of the container group." }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": { "description": "Name of the storage account. If empty, a unique name will be generated." }
     }
   },
   "variables": {
-    "storageAccountName": "[toLower(concat('sa', uniqueString(resourceGroup().id)))]",
+    "storageAccountName": "[if(empty(parameters('storageAccountName')), toLower(concat('sa', uniqueString(resourceGroup().id))), parameters('storageAccountName'))]",
     "queueServiceName": "default",
     "commandQueue": "commandqueue",
     "responseQueue": "responsequeue"
@@ -80,7 +90,7 @@
     {
       "type": "Microsoft.ContainerInstance/containerGroups",
       "apiVersion": "2021-09-01",
-      "name": "sandbox-container",
+      "name": "[parameters('containerName')]",
       "location": "[parameters('location')]",
       "dependsOn": [
         "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', variables('storageAccountName'), 'default', parameters('fileShareName'))]",
@@ -139,7 +149,7 @@
   "outputs": {
     "containerIPv4Address": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', 'sandbox-container')).ipAddress.ip]"
+      "value": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerName'))).ipAddress.ip]"
     },
     "storageAccountName": {
       "type": "string",

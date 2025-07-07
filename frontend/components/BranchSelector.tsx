@@ -54,9 +54,11 @@ export function BranchSelector({
   const fetchBranches = async (repoFullName: string, token: string) => {
     setLoading(true)
     try {
+      // Use NEXT_PUBLIC_GITHUB_TOKEN for operations, fallback to OAuth token
+      const operationsToken = process.env.NEXT_PUBLIC_GITHUB_TOKEN || token;
       const response = await fetch(`https://api.github.com/repos/${repoFullName}/branches`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${operationsToken}`,
           'Accept': 'application/vnd.github.v3+json'
         }
       })

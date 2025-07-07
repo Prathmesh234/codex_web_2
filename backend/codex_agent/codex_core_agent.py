@@ -40,6 +40,11 @@ env_path = Path(__file__).parent / '.env'
 load_dotenv(dotenv_path=env_path)
 print(f"\n[INFO] Loading .env from: {env_path}")
 
+# Also try loading from parent directory as backup
+parent_env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(dotenv_path=parent_env_path)
+print(f"[INFO] Also loading .env from: {parent_env_path}")
+
 # Initialize OpenAI client
 client = OpenAI()
 print("[INFO] OpenAI client initialized")
@@ -50,21 +55,16 @@ env = Environment(loader=FileSystemLoader(template_dir))
 template = env.get_template('codex_core_prompt.jinja')
 print("[INFO] Jinja template loaded")
 
-def get_container_type() -> str:
-    """Ask user whether to use local or Azure container instance"""
-    while True:
-        container_type = input("\nDo you want to use (1) Local container or (2) Azure container instance? [1/2]: ").strip()
-        if container_type in ['1', '2']:
-            return 'local' if container_type == '1' else 'azure'
-        print("Please enter 1 for local or 2 for Azure container instance")
 
-def initialize_azure_queue() -> Optional[AzureQueueManager]:
-    """Initialize Azure Queue Manager if Azure storage connection string is available"""
-    connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
-    if not connection_string:
-        print("[WARNING] Azure Storage connection string not found. Azure container instance will not be available.")
+
+def initialize_azure_queue(connection_string: str) -> Optional[AzureQueueManager]:
+    """Initialize Azure Queue Manager with provided connection string"""
+    print(f"[DEBUG] Using connection string: {connection_string[:50]}...")
+    try:
+        return AzureQueueManager(connection_string)
+    except Exception as e:
+        print(f"[ERROR] Failed to initialize Azure Queue Manager: {str(e)}")
         return None
-    return AzureQueueManager(connection_string)
 
 def execute_command(command: str, project_name: Optional[str], container_type: str, azure_queue: Optional[AzureQueueManager]) -> Dict:
     """Execute command either locally or via Azure queue"""
@@ -78,7 +78,7 @@ def execute_command(command: str, project_name: Optional[str], container_type: s
     else:
         return execute_terminal_command(command)
 
-def complete_task(task_name: str, repo_url: str, project_name: str) -> List[Tuple[str, str]]:
+def complete_task(task_name: str, repo_url: str, project_name: str, container_type: str = "azure", connection_string: Optional[str] = None) -> List[Tuple[str, str]]:
     """
     Execute a task using GPT-4 to generate and execute Linux commands.
     
@@ -86,6 +86,8 @@ def complete_task(task_name: str, repo_url: str, project_name: str) -> List[Tupl
         task_name (str): Description of the task to complete
         repo_url (str): GitHub repository URL to clone
         project_name (str): Name of the project/repository
+        container_type (str): Type of container to use ("local" or "azure"), defaults to "azure"
+        connection_string (Optional[str]): Azure storage connection string for azure container type
         
     Returns:
         List[Tuple[str, str]]: List of (command, output) tuples executed during the session
@@ -96,9 +98,14 @@ def complete_task(task_name: str, repo_url: str, project_name: str) -> List[Tupl
         current_directory="/projects"  # Default directory
     )
     
-    # Determine container type
-    container_type = get_container_type()
-    azure_queue = initialize_azure_queue() if container_type == 'azure' else None
+    # Use the provided container_type parameter
+    azure_queue = None
+    if container_type == 'azure':
+        if connection_string:
+            azure_queue = initialize_azure_queue(connection_string)
+        else:
+            print("[ERROR] Azure container type selected but no connection string provided")
+            return command_history
     
     if container_type == 'azure' and not azure_queue:
         print("\n[ERROR] Azure container instance selected but Azure Queue Manager initialization failed.")
@@ -266,12 +273,8 @@ if __name__ == "__main__":
     print(f"Project name: {project_name}")
     print(f"Container type: {args.container}")
     
-    # Override the get_container_type function to use the argument
-    def get_container_type() -> str:
-        return args.container
-    
     # Execute the task
-    command_history = complete_task(args.task, args.repo, project_name)
+    command_history = complete_task(args.task, args.repo, project_name, args.container)
     
     # Print summary
     print("\nTask Summary:")

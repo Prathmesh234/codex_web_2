@@ -1,2 +1,28 @@
-env.sh 
-run_with_env.sh 
+# Shell scripts for loading sensitive env vars (ignored)
+env.sh
+run_with_env.sh
+
+# Environment variable files
+*.env
+.env.*
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node/Next.js dependencies and build outputs
+node_modules/
+.next/
+dist/
+build/
+
+# Logs and temporary files
+*.log
+logs/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

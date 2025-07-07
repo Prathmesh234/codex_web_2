@@ -1,21 +1,23 @@
 import React from 'react'
 
 interface TerminalProps {
-  input: string
-  output: string
+  commandText: string
+  outputText: string
 }
 
-const Terminal: React.FC<TerminalProps> = ({ input, output }) => {
+const Terminal: React.FC<TerminalProps> = ({ commandText, outputText }) => {
   return (
-    <div className="bg-black text-green-400 font-mono rounded-md p-4 whitespace-pre-wrap">
-      {input && (
-        <div className="mb-2">
+    <div className="bg-black text-green-400 font-mono rounded-lg p-4 w-full overflow-hidden">
+      {commandText && (
+        <div className="mb-2 break-words">
           <span className="text-blue-400">$ </span>
-          {input}
+          <span className="text-green-400">{commandText}</span>
         </div>
       )}
-      {output && (
-        <pre className="text-white">{output}</pre>
+      {outputText && (
+        <div className="text-white text-sm leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">
+          {outputText}
+        </div>
       )}
     </div>
   )

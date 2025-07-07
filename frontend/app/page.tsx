@@ -32,7 +32,8 @@ export default function HomePage() {
     account.createOAuth2Session(
       'github' as any,
       'http://localhost:3001/auth/success',
-      'http://localhost:3001/auth/failure'
+      'http://localhost:3001/auth/failure',
+      ['user:email', 'repo']
     );
   };
 

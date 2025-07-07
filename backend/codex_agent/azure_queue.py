@@ -7,9 +7,16 @@ from typing import Dict, Optional
 class AzureQueueManager:
     def __init__(self, connection_string: str, queue_name: str = "commandqueue"):
         """Initialize Azure Queue Manager with connection string and queue name"""
-        self.queue_client = QueueClient.from_connection_string(connection_string, queue_name)
-        self.response_queue = QueueClient.from_connection_string(connection_string, "responsequeue")
-        self.pending_messages = set()  # Track pending message IDs
+        print(f"[DEBUG] Initializing AzureQueueManager with connection string: {connection_string[:50]}...")
+        print(f"[DEBUG] Queue name: {queue_name}")
+        try:
+            self.queue_client = QueueClient.from_connection_string(connection_string, queue_name)
+            self.response_queue = QueueClient.from_connection_string(connection_string, "responsequeue")
+            self.pending_messages = set()  # Track pending message IDs
+            print("[DEBUG] AzureQueueManager initialized successfully")
+        except Exception as e:
+            print(f"[ERROR] Failed to create QueueClient: {str(e)}")
+            raise
     
     def send_command(self, command: str, project_name: Optional[str] = None) -> str:
         """Send a command to the Azure queue and return message ID"""

@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, GitCommit, FileText, Check, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, GitCommit, FileText, Check, X, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function DocumentationCommitPage() {
   const searchParams = useSearchParams();
@@ -145,8 +145,8 @@ export default function DocumentationCommitPage() {
     setErrorMessage('');
 
     try {
-      // Determine which GitHub token to use (URL param, env var, or localStorage)
-      const storedGithubToken = githubToken || (typeof window !== 'undefined' ? localStorage.getItem('github_token') : null);
+      // Use environment token for GitHub operations, OAuth token only for authentication
+      const storedGithubToken = process.env.NEXT_PUBLIC_GITHUB_TOKEN || githubToken;
       
 
       // Build README content from collected documentation
@@ -193,7 +193,13 @@ export default function DocumentationCommitPage() {
       if (data.result) {
         try {
           const resultData = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-          prUrl = resultData.pr_url;
+          
+          // Check if result.result contains the PR URL directly
+          if (resultData.result && typeof resultData.result === 'string' && resultData.result.includes('github.com')) {
+            prUrl = resultData.result;
+          } else if (resultData.pr_url) {
+            prUrl = resultData.pr_url;
+          }
         } catch (e) {
           console.error('Error parsing result data:', e);
         }
@@ -202,6 +208,11 @@ export default function DocumentationCommitPage() {
       // Also check if PR URL is directly in the response
       if (!prUrl && data.pr_url) {
         prUrl = data.pr_url;
+      }
+      
+      // If still no URL found, check if data.result is directly a URL string
+      if (!prUrl && typeof data.result === 'string' && data.result.includes('github.com')) {
+        prUrl = data.result;
       }
       
       if (prUrl) {
@@ -225,23 +236,44 @@ export default function DocumentationCommitPage() {
     router.back();
   };
 
+  const handleNextCodexAgent = () => {
+    // Navigate to codex agent page with required parameters
+    const params = new URLSearchParams();
+    if (originalTask) params.append('task', originalTask);
+    if (githubToken) params.append('github_token', githubToken);
+    if (repoInfo) params.append('repo_info', JSON.stringify(repoInfo));
+    
+    router.push(`/codex_agent-view?${params.toString()}`);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-6">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={handleGoBack}
-            className="flex items-center gap-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </Button>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            View & Commit Documentation
-          </h1>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleGoBack}
+              className="flex items-center gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back
+            </Button>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              View & Commit Documentation
+            </h1>
+          </div>
+          {commitStatus === 'success' && (
+            <Button 
+              onClick={handleNextCodexAgent}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Next: Codex Agent
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          )}
         </div>
 
         {/* Documentation Content */}

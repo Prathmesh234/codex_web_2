@@ -13,11 +13,12 @@ from pathlib import Path
 import json
 import requests
 from codex_agent.repository_manager import clone_repository
-from codex_agent.kernel_agent import execute_terminal_command
+from codex_agent.kernel_agent import execute_terminal_command, ensure_container_running, check_container_health
 from codex_agent.codex_core_agent import complete_task
 from fastapi import Cookie
 from starlette.websockets import WebSocketState
 from contextlib import contextmanager
+import time
 
 
 # Configure logging
@@ -72,7 +73,9 @@ class CloneRequest(BaseModel):
 
 class CommandRequest(BaseModel):
     task: str
+    repo_url: str
     project_name: Optional[str] = None
+    container_type: Optional[str] = "azure"  # "local" or "azure", defaults to "azure"
 
 class AutoAgentRequest(BaseModel):
     git_url: str
@@ -130,6 +133,7 @@ def check_container_health():
     except:
         return False
 
+
 # Clone Repository Endpoint
 @app.post("/clone")
 async def clone_repository_endpoint(request: CloneRequest):
@@ -150,11 +154,78 @@ async def execute_command(request: CommandRequest):
     try:
         print("\n[INFO] Received execute request:")
         print(f"Task: {request.task}")
+        print(f"Repo URL: {request.repo_url}")
         print(f"Project name: {request.project_name}")
+        print(f"Container type: {request.container_type}")
+        
+        # Extract project name from repo URL if not provided
+        if not request.project_name:
+            project_name = request.repo_url.split('/')[-1].replace('.git', '')
+        else:
+            project_name = request.project_name
+        
+        print(f"Using project name: {project_name}")
+        
+        # Check container status only for local container type
+        container_running = True  # Default to true for Azure
+        
+        if request.container_type == "local":
+            container_running = False
+            
+            try:
+                # Check if container is running
+                container_running = ensure_container_running()
+                
+                # Wait a bit for container to be ready
+                await asyncio.sleep(2)
+                
+                # Check health
+                if not check_container_health():
+                    container_running = False
+                    
+            except Exception as e:
+                print(f"[ERROR] Container check failed: {str(e)}")
+                container_running = False
+            
+            print(f"[INFO] Local container running: {container_running}")
+            
+            if not container_running:
+                return {
+                    "success": False,
+                    "container_running": container_running,
+                    "message": "Local container is not running. Cannot execute task."
+                }
+        else:
+            print(f"[INFO] Using {request.container_type} container - skipping local container check")
+        
+        # For Azure container, deploy sandbox and get connection string
+        connection_string = None
+        if request.container_type == "azure":
+            print("\n[INFO] Deploying Azure sandbox...")
+            try:
+                from sandbox_image.deploy_sandbox import deploy_sandbox
+                deployment_result = deploy_sandbox()
+                
+                if deployment_result.get("status") == "success":
+                    connection_string = deployment_result.get("storage_connection_string")
+                    print(f"[INFO] Azure sandbox deployed successfully")
+                    print(f"[INFO] Deployment ID: {deployment_result.get('id')}")
+                else:
+                    print(f"[ERROR] Failed to deploy Azure sandbox: {deployment_result.get('message')}")
+                    return {
+                        "success": False,
+                        "message": f"Failed to deploy Azure sandbox: {deployment_result.get('message')}"
+                    }
+            except Exception as e:
+                print(f"[ERROR] Error deploying Azure sandbox: {str(e)}")
+                return {
+                    "success": False,
+                    "message": f"Error deploying Azure sandbox: {str(e)}"
+                }
         
         # Use the complete_task function to execute the task
         print("\n[INFO] Starting codex core agent...")
-        command_history = complete_task(request.task)
+        command_history = complete_task(request.task, request.repo_url, project_name, request.container_type, connection_string)
         
         if not command_history:
             print("\n[ERROR] No commands were executed successfully")
@@ -295,6 +366,10 @@ async def orchestrator_endpoint(request: OrchestratorRequest):
         logger.info(f"[Orchestrator] Repo Info: {request.repo_info}")
         logger.info(f"[Orchestrator] GitHub Token: {'Present' if request.github_token else 'Not provided'}")
         
+        # Prioritize environment token over passed token
+        github_token = os.getenv("GITHUB_TOKEN") or request.github_token
+        logger.info(f"[Orchestrator] Using GitHub Token: {'Environment token' if os.getenv('GITHUB_TOKEN') else 'Passed token' if github_token else 'None'}")
+        
         # Import and use the orchestrator
         from orchestrator.orchestrator import run_orchestrator
         
@@ -304,7 +379,7 @@ async def orchestrator_endpoint(request: OrchestratorRequest):
             task_name=request.task,
             repo_info=request.repo_info,
             browser_count=browser_count,
-            github_token=request.github_token,
+            github_token=github_token,
             documentation=request.documentation,
             pull_request_message=request.pullRequestMessage,
             pull_request_description=request.pullRequestDescription
@@ -346,6 +421,7 @@ async def get_browser_session_status(session_id: str):
             status_code=500,
             detail=f"Error getting browser session status: {str(e)}"
         )
+
 
 @app.websocket("/ws/web-agent/{session_id}")
 async def websocket_web_agent_stream(websocket: WebSocket, session_id: str):

@@ -8,13 +8,16 @@ if [ -z "$GITHUB_TOKEN" ]; then
 fi
 
 # ─── User & ACR configuration ─────────────────────────────────────────────────
-RESOURCE_GROUP="codex_rg"
-LOCATION="eastus"
+RESOURCE_GROUP="${1:-codex_rg}"
+LOCATION="${2:-eastus}"
+CONTAINER_NAME="${3:-sandbox-container}"
+STORAGE_ACCOUNT="${4:-}"
 REGISTRY_NAME="registrycodex64425830"
 IMAGE_NAME="sandbox/sandbox-image:bashfix"
 
 # ─── Build & push multi-platform Linux image ──────────────────────────────────
-docker buildx create --use --bootstrap --name sbx-builder || true
+docker buildx rm sbx-builder || true
+docker buildx create --use --bootstrap --name sbx-builder
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -t ${REGISTRY_NAME}.azurecr.io/${IMAGE_NAME} \
@@ -25,25 +28,32 @@ REGISTRY_USERNAME=$(az acr credential show -n $REGISTRY_NAME --query username -o
 REGISTRY_PASSWORD=$(az acr credential show -n $REGISTRY_NAME --query "passwords[0].value" -o tsv)
 
 # ─── Deploy via ARM ────────────────────────────────────────────────────────────
-echo "=== Deploying container group 'sandbox-container' ==="
+echo "=== Deploying container group '$CONTAINER_NAME' ==="
+
 az deployment group create \
-  --resource-group $RESOURCE_GROUP \
+  --resource-group "$RESOURCE_GROUP" \
   --name "deploy-sandbox" \
   --template-file sandbox_template.json \
   --parameters \
-    registryName=$REGISTRY_NAME \
-    containerImage=${REGISTRY_NAME}.azurecr.io/${IMAGE_NAME} \
-    containerRegistryServer=${REGISTRY_NAME}.azurecr.io \
-    containerRegistryUsername=$REGISTRY_USERNAME \
-    containerRegistryPassword=$REGISTRY_PASSWORD \
-    location=$LOCATION \
-    fileShareName="projects"
+      registryName="$REGISTRY_NAME" \
+      containerImage="${REGISTRY_NAME}.azurecr.io/${IMAGE_NAME}" \
+      containerRegistryServer="${REGISTRY_NAME}.azurecr.io" \
+      containerRegistryUsername="$REGISTRY_USERNAME" \
+      containerRegistryPassword="$REGISTRY_PASSWORD" \
+      location="$LOCATION" \
+      fileShareName="projects" \
+      containerName="$CONTAINER_NAME" \
+      githubToken="$GITHUB_TOKEN" \
+      ${STORAGE_ACCOUNT:+storageAccountName="$STORAGE_ACCOUNT"}
 
 # ─── Output summary ────────────────────────────────────────────────────────────
-IP=$(az container show -g $RESOURCE_GROUP -n sandbox-container --query ipAddress.ip -o tsv)
+IP=$(az container show -g $RESOURCE_GROUP -n $CONTAINER_NAME --query ipAddress.ip -o tsv)
 STORAGE=$(az deployment group show -g $RESOURCE_GROUP -n deploy-sandbox \
            --query "properties.outputs.storageAccountName.value" -o tsv)
+CONNECTION_STRING=$(az deployment group show -g $RESOURCE_GROUP -n deploy-sandbox \
+           --query "properties.outputs.storageConnectionString.value" -o tsv)
 
 echo "Deployment complete!"
-echo " • Container: sandbox-container @ $IP"
+echo " • Container: $CONTAINER_NAME @ $IP"
 echo " • Storage Account: $STORAGE"
+echo " • Connection String: $CONNECTION_STRING"

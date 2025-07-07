@@ -86,9 +86,11 @@ export default function ChatPage() {
   const fetchRepositories = async (token: string) => {
     setReposLoading(true);
     try {
+      // Use NEXT_PUBLIC_GITHUB_TOKEN for operations, fallback to OAuth token
+      const operationsToken = process.env.NEXT_PUBLIC_GITHUB_TOKEN || token;
       const response = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${operationsToken}`,
           'Accept': 'application/vnd.github.v3+json'
         }
       });
@@ -164,6 +166,9 @@ export default function ChatPage() {
     
     const taskId = Date.now().toString();
     
+    // Use NEXT_PUBLIC_GITHUB_TOKEN for operations, fallback to OAuth token
+    const operationsToken = process.env.NEXT_PUBLIC_GITHUB_TOKEN || githubToken;
+    
     // Add to To Do list
     setTasks(prev => [
       ...prev,
@@ -176,14 +181,11 @@ export default function ChatPage() {
         browserCount: browserCount || 1,
         isLoading: true, // Start with loading state
         repoInfo: selectedRepoInfo || undefined, // Store full repo info, avoid null
-        githubToken: githubToken || undefined, // Store GitHub token, avoid null
+        githubToken: operationsToken || undefined, // Store operations token, avoid null
       },
     ]);
     setInputValue('');
     setIsFirstMessage(false);
-    
-    // Retrieve GitHub token from localStorage
-    const storedGithubToken = githubToken
 
     // Call orchestrator endpoint
     try {
@@ -194,7 +196,7 @@ export default function ChatPage() {
           task: inputValue,
           browser_count: browserCount,
           repo_info: selectedRepoInfo,
-          github_token: storedGithubToken,
+          github_token: operationsToken,
         }),
       });
       const data = await response.json();
@@ -303,9 +305,11 @@ export default function ChatPage() {
           
           // Fetch GitHub user information
           try {
+            // Use NEXT_PUBLIC_GITHUB_TOKEN for operations, fallback to OAuth token
+            const operationsToken = process.env.NEXT_PUBLIC_GITHUB_TOKEN || token;
             const response = await fetch('https://api.github.com/user', {
               headers: {
-                'Authorization': `Bearer ${token}`,
+                'Authorization': `Bearer ${operationsToken}`,
                 'Accept': 'application/vnd.github.v3+json'
               }
             });
@@ -317,7 +321,7 @@ export default function ChatPage() {
               console.log('GitHub User Data:', userData);
               
               // Fetch repositories after getting user data
-              await fetchRepositories(token);
+              await fetchRepositories(operationsToken);
             } else {
               console.error('Failed to fetch GitHub user data:', response.status);
             }
