@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+cd "$(dirname "$0")"
 
 # ─── Validate required env vars ────────────────────────────────────────────────
 if [ -z "$GITHUB_TOKEN" ]; then

@@ -33,11 +33,12 @@ class AzureQueueManager:
     
     def wait_for_response(self, message_id: str, timeout: int = 300) -> Dict:
         """Wait for response from the container instance"""
+        # Add message_id to pending_messages if not already there
+        if message_id not in self.pending_messages:
+            self.pending_messages.add(message_id)
+            
         start_time = time.time()
         while time.time() - start_time < timeout:
-            if message_id not in self.pending_messages:
-                raise ValueError(f"Message ID {message_id} is not being tracked")
-                
             messages = self.response_queue.receive_messages(messages_per_page=32)
             for message in messages:
                 try:
@@ -56,3 +57,37 @@ class AzureQueueManager:
         """Execute a command and wait for response"""
         message_id = self.send_command(command, project_name)
         return self.wait_for_response(message_id) 
+
+    def receive_command(self, timeout: int = 30) -> Optional[Dict]:
+        """Receive a single command message from the command queue"""
+        messages = self.queue_client.receive_messages(
+            messages_per_page=1, visibility_timeout=timeout
+        )
+        for msg in messages:
+            try:
+                payload = json.loads(msg.content)
+            except json.JSONDecodeError:
+                # discard invalid message
+                self.queue_client.delete_message(msg.id, msg.pop_receipt)
+                continue
+            # remove message from queue and return payload
+            self.queue_client.delete_message(msg.id, msg.pop_receipt)
+            return payload
+        return None
+
+    def receive_response(self, timeout: int = 30) -> Optional[Dict]:
+        """Receive a single response message from the response queue"""
+        messages = self.response_queue.receive_messages(
+            messages_per_page=1, visibility_timeout=timeout
+        )
+        for msg in messages:
+            try:
+                payload = json.loads(msg.content)
+            except json.JSONDecodeError:
+                # discard invalid message
+                self.response_queue.delete_message(msg.id, msg.pop_receipt)
+                continue
+            # remove message from queue and return payload
+            self.response_queue.delete_message(msg.id, msg.pop_receipt)
+            return payload
+        return None

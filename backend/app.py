@@ -15,10 +15,14 @@ import requests
 from codex_agent.repository_manager import clone_repository
 from codex_agent.kernel_agent import execute_terminal_command, ensure_container_running, check_container_health
 from codex_agent.codex_core_agent import complete_task
+from codex_agent.azure_queue import AzureQueueManager
 from fastapi import Cookie
 from starlette.websockets import WebSocketState
 from contextlib import contextmanager
 import time
+
+# Will be set to the Azure storage connection string upon sandbox deployment
+azure_connection_string: Optional[str] = None
 
 
 # Configure logging
@@ -27,6 +31,12 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Reduce Azure SDK logging verbosity
+azure_logger = logging.getLogger("azure.core.pipeline.policies.http_logging_policy")
+azure_logger.setLevel(logging.WARNING)
+azure_storage_logger = logging.getLogger("azure.storage")
+azure_storage_logger.setLevel(logging.WARNING)
 
 # Load environment variables
 load_dotenv()
@@ -151,6 +161,7 @@ async def execute_command(request: CommandRequest):
     """
     Execute a task using the codex core agent
     """
+    global azure_connection_string
     try:
         print("\n[INFO] Received execute request:")
         print(f"Task: {request.task}")
@@ -208,6 +219,8 @@ async def execute_command(request: CommandRequest):
                 
                 if deployment_result.get("status") == "success":
                     connection_string = deployment_result.get("storage_connection_string")
+                    # Store connection string for WebSocket streaming
+                    azure_connection_string = connection_string
                     print(f"[INFO] Azure sandbox deployed successfully")
                     print(f"[INFO] Deployment ID: {deployment_result.get('id')}")
                 else:
@@ -223,27 +236,34 @@ async def execute_command(request: CommandRequest):
                     "message": f"Error deploying Azure sandbox: {str(e)}"
                 }
         
-        # Use the complete_task function to execute the task
+        # Start task in background for real-time streaming
         print("\n[INFO] Starting codex core agent...")
-        command_history = complete_task(request.task, request.repo_url, project_name, request.container_type, connection_string)
         
-        if not command_history:
-            print("\n[ERROR] No commands were executed successfully")
-            raise HTTPException(status_code=500, detail="No commands were executed successfully")
-            
-        # Get the last command's output
-        last_command, last_output = command_history[-1]
+        # Store connection string for websocket access
+        azure_connection_string = connection_string
         
-        print("\n[INFO] Task completed. Final output:")
-        print("-" * 50)
-        print(last_output)
-        print("-" * 50)
+        # Start the task in background
+        task_id = f"task_{int(time.time())}"
+        
+        def run_task_in_background():
+            try:
+                command_history = complete_task(request.task, request.repo_url, project_name, request.container_type, connection_string)
+                print(f"[INFO] Task {task_id} completed with {len(command_history)} commands")
+            except Exception as e:
+                print(f"[ERROR] Task {task_id} failed: {str(e)}")
+        
+        # Start in background thread
+        import threading
+        threading.Thread(target=run_task_in_background, daemon=True).start()
+        
+        print(f"[INFO] Task {task_id} started in background")
         
         return {
             "success": True,
-            "command_history": command_history,
-            "stdout": last_output,
-            "stderr": ""
+            "task_id": task_id,
+            "message": "Task started. Commands will stream in real-time.",
+            "should_stream": True,
+            "task_completed": False
         }
     except Exception as e:
         print(f"\n[ERROR] Error in execute endpoint: {str(e)}")
@@ -339,6 +359,16 @@ def shutdown_all_browser_sessions():
             detail=f"Error shutting down all browser sessions: {str(e)}"
         )
 
+
+
+@app.get("/api/container/status")
+def container_status():
+    """Check if Azure container is initialized and connection string is available"""
+    return JSONResponse({
+        "initialized": azure_connection_string is not None,
+        "connection_available": azure_connection_string is not None
+    })
+
 @app.get("/api/user/github-connected")
 def github_connected(request: Request):
     # TODO: Check Appwrite session for GitHub connection status
@@ -354,6 +384,63 @@ def appwrite_test():
     except Exception as e:
         logger.error(f"Appwrite test error: {str(e)}")
         return {"status": "error", "error": str(e)}
+
+
+@app.websocket("/ws/commands")
+async def websocket_commands(websocket: WebSocket):
+    """Stream commands from the Azure queue and their responses over WebSocket."""
+    await websocket.accept()
+    conn_str = azure_connection_string or os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+    if not conn_str:
+        await websocket.close(code=1008)
+        return
+    queue_mgr = AzureQueueManager(conn_str)
+    task_completed = False
+    consecutive_empty_polls = 0
+    max_empty_polls = 30  # Stop after 30 consecutive empty polls (30 seconds)
+    
+    try:
+        while not task_completed:
+            cmd = await asyncio.to_thread(queue_mgr.receive_command)
+            if not cmd:
+                consecutive_empty_polls += 1
+                if consecutive_empty_polls >= max_empty_polls:
+                    logger.info("No commands received for 30 seconds, stopping polling")
+                    break
+                await asyncio.sleep(1)
+                continue
+            
+            consecutive_empty_polls = 0  # Reset counter when we get a command
+            await websocket.send_json({"type": "command", "data": cmd})
+            
+            try:
+                message_id = cmd.get("message_id")
+                if message_id is None:
+                    logger.warning("Command has no message_id, skipping response wait")
+                    continue
+                resp = await asyncio.to_thread(queue_mgr.wait_for_response, message_id)
+                await websocket.send_json({"type": "response", "data": resp})
+                
+                # Check if this indicates task completion
+                if resp.get("status") == "completed" or resp.get("task_completed") == True:
+                    task_completed = True
+                    logger.info("Task completed, stopping command polling")
+                    break
+                    
+            except TimeoutError:
+                logger.warning(f"Timeout waiting for response to command {cmd.get('message_id')}")
+                await websocket.send_json({"type": "error", "data": {"message": "Command timeout"}})
+                break
+            except Exception as e:
+                logger.error(f"Error processing command response: {str(e)}")
+                await websocket.send_json({"type": "error", "data": {"message": str(e)}})
+                break
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Error in websocket_commands: {str(e)}")
+    finally:
+        logger.info("Closing WebSocket connection")
 
 @app.post("/api/orchestrator")
 async def orchestrator_endpoint(request: OrchestratorRequest):

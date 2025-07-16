@@ -17,9 +17,9 @@ def deploy_sandbox(resource_group: str = RESOURCE_GROUP, location: str = LOCATIO
     """
     deployment_name = f"deploy-sandbox-{uuid.uuid4().hex[:8]}"
     
-    # Set GitHub token as environment variable
+    # Set GitHub token manually for ARM deployment
     env = os.environ.copy()
-    env["GITHUB_TOKEN"] = ""
+    env["GITHUB_TOKEN"] = ""  # <-- Set your token here
     
     try:
         # Run the deploy_arm.sh script with parameters

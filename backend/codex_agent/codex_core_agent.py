@@ -218,17 +218,9 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
             print("-" * 50)
             logger.info(f"Command output: {output}")
             
-            # Ask user if they want to continue
-            while True:
-                user_input = input("\nDo you want to continue with the next command? (y/n): ").strip().lower()
-                if user_input in ['y', 'n']:
-                    break
-                print("Please enter 'y' or 'n'")
-            
-            if user_input == 'n':
-                print("\n[INFO] Task stopped by user")
-                logger.info("Task stopped by user")
-                return command_history
+            # Auto-approve all commands for real-time streaming
+            print("\nDo you want to continue with the next command? (y/n): y")
+            print("[INFO] Auto-approved command for real-time streaming")
             
         except Exception as e:
             print(f"\n[ERROR] Error in task execution: {str(e)}")
