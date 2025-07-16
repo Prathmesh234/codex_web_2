@@ -75,6 +75,19 @@ class AzureQueueManager:
             return payload
         return None
 
+    def peek_command(self) -> Optional[Dict]:
+        """Peek at the next command in the queue without removing it"""
+        try:
+            messages = self.queue_client.peek_messages(max_messages=1)
+            for msg in messages:
+                try:
+                    return json.loads(msg.content)
+                except json.JSONDecodeError:
+                    continue
+        except Exception:
+            pass
+        return None
+
     def receive_response(self, timeout: int = 30) -> Optional[Dict]:
         """Receive a single response message from the response queue"""
         messages = self.response_queue.receive_messages(

@@ -398,10 +398,11 @@ async def websocket_commands(websocket: WebSocket):
     task_completed = False
     consecutive_empty_polls = 0
     max_empty_polls = 30  # Stop after 30 consecutive empty polls (30 seconds)
+    processed_ids = set()
     
     try:
         while not task_completed:
-            cmd = await asyncio.to_thread(queue_mgr.receive_command)
+            cmd = await asyncio.to_thread(queue_mgr.peek_command)
             if not cmd:
                 consecutive_empty_polls += 1
                 if consecutive_empty_polls >= max_empty_polls:
@@ -409,12 +410,17 @@ async def websocket_commands(websocket: WebSocket):
                     break
                 await asyncio.sleep(1)
                 continue
-            
+
+            message_id = cmd.get("message_id")
+            if message_id in processed_ids:
+                await asyncio.sleep(1)
+                continue
+            processed_ids.add(message_id)
+
             consecutive_empty_polls = 0  # Reset counter when we get a command
             await websocket.send_json({"type": "command", "data": cmd})
-            
+
             try:
-                message_id = cmd.get("message_id")
                 if message_id is None:
                     logger.warning("Command has no message_id, skipping response wait")
                     continue
