@@ -48,7 +48,7 @@
     }
   },
   "variables": {
-    "storageAccountName": "[if(empty(parameters('storageAccountName')), toLower(concat('sa', uniqueString(resourceGroup().id))), parameters('storageAccountName'))]",
+    "storageAccountName": "[if(empty(parameters('storageAccountName')), toLower(concat('codexsa', uniqueString(subscription().subscriptionId, resourceGroup().name))), parameters('storageAccountName'))]",
     "queueServiceName": "default",
     "commandQueue": "commandqueue",
     "responseQueue": "responsequeue"
@@ -99,7 +99,7 @@
       ],
       "properties": {
         "osType": "Linux",
-        "restartPolicy": "OnFailure",
+        "restartPolicy": "Always",
         "ipAddress": { "type": "Public", "ports": [{ "protocol": "TCP", "port": 3000 }] },
         "imageRegistryCredentials": [
           {

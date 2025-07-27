@@ -45,9 +45,20 @@ parent_env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=parent_env_path)
 print(f"[INFO] Also loading .env from: {parent_env_path}")
 
-# Initialize OpenAI client
-client = OpenAI()
-print("[INFO] OpenAI client initialized")
+# Initialize OpenRouter client
+openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+openrouter_base_url = os.getenv("OPENROUTER_BASE_URL")
+
+if not openrouter_api_key:
+    raise ValueError("OPENROUTER_API_KEY environment variable is required")
+if not openrouter_base_url:
+    raise ValueError("OPENROUTER_BASE_URL environment variable is required")
+
+client = OpenAI(
+    api_key=openrouter_api_key,
+    base_url=openrouter_base_url
+)
+print("[INFO] OpenRouter client initialized with o3-mini model")
 
 # Initialize Jinja environment
 template_dir = Path(__file__).parent
@@ -68,14 +79,20 @@ def initialize_azure_queue(connection_string: str) -> Optional[AzureQueueManager
 
 def execute_command(command: str, project_name: Optional[str], container_type: str, azure_queue: Optional[AzureQueueManager]) -> Dict:
     """Execute command either locally or via Azure queue"""
+    print(f"[DEBUG] execute_command called with: container_type={container_type}, azure_queue={azure_queue is not None}")
+    
     if container_type == 'azure' and azure_queue:
+        print(f"[DEBUG] Sending command to Azure queue: {command}")
         try:
-            return azure_queue.execute_command(command, project_name)
+            result = azure_queue.execute_command(command, project_name)
+            print(f"[DEBUG] Azure queue response: {result}")
+            return result
         except Exception as e:
             print(f"\n[ERROR] Azure queue operation failed: {str(e)}")
             logger.error(f"Azure queue operation failed: {str(e)}", exc_info=True)
             return {"success": False, "error": str(e)}
     else:
+        print(f"[DEBUG] Executing command locally: {command}")
         return execute_terminal_command(command)
 
 def complete_task(task_name: str, repo_url: str, project_name: str, container_type: str = "azure", connection_string: Optional[str] = None) -> List[Tuple[str, str]]:
@@ -109,8 +126,8 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
     
     if container_type == 'azure' and not azure_queue:
         print("\n[ERROR] Azure container instance selected but Azure Queue Manager initialization failed.")
-        print("Falling back to local container...")
-        container_type = 'local'
+        print("[ERROR] Cannot proceed without Azure queue. Local container fallback is disabled.")
+        return command_history
     
     print(f"\n[INFO] Starting task: {task_name}")
     print(f"[INFO] Using {container_type} container instance")
@@ -121,7 +138,13 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
     print(f"\n[INFO] Cloning repository: {repo_url}")
     logger.info(f"Cloning repository: {repo_url}")
     
+    print(f"[DEBUG] About to execute command: {clone_command}")
+    print(f"[DEBUG] Container type: {container_type}")
+    print(f"[DEBUG] Azure queue initialized: {azure_queue is not None}")
+    
     result = execute_command(clone_command, None, container_type, azure_queue)
+    print(f"[DEBUG] Command execution result: {result}")
+    
     if not result["success"]:
         error_msg = result.get("error", "Unknown error")
         print(f"\n[ERROR] Failed to clone repository: {error_msg}")
@@ -142,37 +165,57 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
             print(prompt)
             print("-" * 50)
             
-            # Get command from GPT-4
-            print("\n[INFO] Calling OpenAI API...")
-            response = client.responses.create(
-                model="o4-mini",
-                input=[
-                    {
-                        "role": "system",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": prompt
-                            }
-                        ]
-                    }
-                ],
-                text={
-                    "format": {
-                        "type": "text"
-                    }
-                },
-                reasoning={
-                    "effort": "medium",
-                    "summary": "auto"
-                },
-                tools=[],
-                store=True
-            )
+            # Get command from OpenRouter API
+            print("\n[INFO] Calling OpenRouter API...")
+            logger.info("Making OpenRouter API call with o3-mini model")
             
-            command = response.output_text.strip()
-            print(f"\n[INFO] Generated command: {command}")
-            logger.info(f"Generated command: {command}")
+            try:
+                response = client.chat.completions.create(
+                    model="o3-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.1,
+                    max_tokens=500
+                )
+                
+                # Debug the full API response
+                print(f"[DEBUG] 🤖 OpenRouter API Response:")
+                print(f"[DEBUG] 🤖 Response ID: {getattr(response, 'id', 'No ID')}")
+                print(f"[DEBUG] 🤖 Model used: {getattr(response, 'model', 'Unknown model')}")
+                print(f"[DEBUG] 🤖 Choices count: {len(response.choices) if response.choices else 0}")
+                
+                if response.choices and len(response.choices) > 0:
+                    choice = response.choices[0]
+                    print(f"[DEBUG] 🤖 Finish reason: {getattr(choice, 'finish_reason', 'Unknown')}")
+                    print(f"[DEBUG] 🤖 Message role: {getattr(choice.message, 'role', 'Unknown')}")
+                    raw_content = choice.message.content
+                    print(f"[DEBUG] 🤖 Raw content: '{raw_content}'")
+                    print(f"[DEBUG] 🤖 Content length: {len(raw_content) if raw_content else 0}")
+                    
+                    command = raw_content.strip() if raw_content else ""
+                else:
+                    print("[ERROR] 🤖 No choices in OpenRouter API response!")
+                    logger.error("No choices in OpenRouter API response")
+                    command = ""
+                    
+            except Exception as api_error:
+                print(f"[ERROR] 🤖 OpenRouter API call failed: {str(api_error)}")
+                logger.error(f"OpenRouter API call failed: {str(api_error)}")
+                print("[INFO] Retrying with a simple fallback command...")
+                command = "pwd"  # Simple fallback command
+            
+            print(f"\n[INFO] Generated command: '{command}'")
+            logger.info(f"Generated command: '{command}'")
+            
+            # Log empty commands but continue execution
+            if not command or command.strip() == "":
+                print("\n[WARNING] 🤖 OpenRouter API returned empty command - will attempt to execute anyway")
+                logger.warning("OpenRouter API returned empty command - will attempt to execute anyway")
+                print("[INFO] This might be due to API rate limiting or model issues")
             
             # Check if task is complete
             if command == "TASK_COMPLETED":

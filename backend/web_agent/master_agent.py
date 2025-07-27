@@ -15,11 +15,25 @@ async def master_agent(task: str, user_name: Optional[str] = None):
     load_dotenv(".env")
     thread = ChatHistoryAgentThread()
     master_agent_name = "master_agent"
-    credentials = os.getenv("OPENAI_API_KEY")
+    
+    # Use OpenRouter configuration
+    credentials = os.getenv("OPENROUTER_API_KEY")
+    base_url = os.getenv("OPENROUTER_BASE_URL")
+    
+    if not credentials:
+        raise ValueError("OPENROUTER_API_KEY environment variable is required")
+    if not base_url:
+        raise ValueError("OPENROUTER_BASE_URL environment variable is required")
+    
     master_service_id = "master_agent"
 
-    # Add the OpenAIChatCompletion service to the kernel
-    service = OpenAIChatCompletion(service_id=master_service_id, api_key=credentials, ai_model_id="gpt-4o")
+    # Add the OpenAIChatCompletion service to the kernel with OpenRouter configuration
+    service = OpenAIChatCompletion(
+        service_id=master_service_id, 
+        api_key=credentials, 
+        ai_model_id="o3-mini",
+        endpoint="https://openrouter.ai/api/v1"
+    )
     kernel.add_service(service)
 
     # Add the memory plugin

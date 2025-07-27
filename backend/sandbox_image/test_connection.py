@@ -16,16 +16,18 @@ def test_connection_string():
     
     print(f"✅ Connection string found: {connection_string[:50]}...")
     
-    # Test connection by creating a QueueClient
+    # Test connection by creating a QueueClient (queue name can come from COMMAND_QUEUE env)
     try:
-        queue_client = QueueClient.from_connection_string(connection_string, "commandqueue")
+        queue_name = os.getenv('COMMAND_QUEUE', 'commandqueue')
+        print(f"✅ Testing command queue: {queue_name}")
+        queue_client = QueueClient.from_connection_string(connection_string, queue_name)
         print("✅ QueueClient created successfully")
-        
+
         # Try to get queue properties to verify connection
         properties = queue_client.get_queue_properties()
         print(f"✅ Queue properties retrieved: {properties.name}")
         return True
-        
+
     except Exception as e:
         print(f"❌ Connection test failed: {str(e)}")
         return False

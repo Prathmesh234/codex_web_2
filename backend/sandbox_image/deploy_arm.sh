@@ -58,3 +58,15 @@ echo "Deployment complete!"
 echo " • Container: $CONTAINER_NAME @ $IP"
 echo " • Storage Account: $STORAGE"
 echo " • Connection String: $CONNECTION_STRING"
+
+# Grant data-plane queue permissions to the deploying user
+echo "Assigning Storage Queue Data Contributor role to current user..."
+USER_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv)
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+STORAGE_SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Storage/storageAccounts/$STORAGE"
+az role assignment create \
+  --assignee $USER_OBJECT_ID \
+  --role "Storage Queue Data Contributor" \
+  --scope "$STORAGE_SCOPE" \
+  || echo "Role assignment may already exist or failed."
+echo "Role assignment complete."

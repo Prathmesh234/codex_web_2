@@ -6,18 +6,28 @@ from azure.core.credentials import AzureKeyCredential
 from dotenv import load_dotenv
 import uuid
 
-# Function to get OpenAI embeddings for a given text
+# Function to get OpenRouter embeddings for a given text
 def get_azure_embedding(text, model="text-embedding-3-large"):
     load_dotenv()  # Ensure environment variables are loaded
+    
+    # Use OpenRouter configuration
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    base_url = os.getenv("OPENROUTER_BASE_URL")
+    
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable is required")
+    if not base_url:
+        raise ValueError("OPENROUTER_BASE_URL environment variable is required")
+    
     client = OpenAI(
-        api_key=os.getenv("OPENAI_API_KEY")
+        api_key=api_key,
+        base_url=base_url
     )
     
-    # Call the OpenAI Embedding API
+    # Call the OpenRouter Embedding API
     response = client.embeddings.create(
         input=text,
         model=model
-
     )
     return response.data[0].embedding
 

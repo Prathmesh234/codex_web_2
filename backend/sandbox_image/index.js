@@ -52,18 +52,90 @@ function runCommand(cmd, opts = {}) {
 (async () => {
   console.log('Initializing queues');
   const connStr = process.env.AZURE_STORAGE_CONNECTION_STRING;
-  const cmdQueue = new QueueClient(connStr, 'commandqueue');
-  const rspQueue = new QueueClient(connStr, 'responsequeue');
-  await cmdQueue.createIfNotExists(); console.log('Command queue ready');
-  await rspQueue.createIfNotExists(); console.log('Response queue ready');
+  console.log('AZURE_STORAGE_CONNECTION_STRING:', connStr); // Log the connection string at startup
+  
+  // Extract and log storage account name for verification
+  try {
+    const accountMatch = connStr.match(/AccountName=([^;]+)/);
+    if (accountMatch) {
+      const storageAccountName = accountMatch[1];
+      console.log(`🎯 CONTAINER VERIFICATION:`);
+      console.log(`🎯 Container using Storage Account: ${storageAccountName}`);
+      console.log(`🎯 This should match the sender's storage account!`);
+    }
+  } catch (e) {
+    console.log('Could not parse storage account name from connection string');
+  }
+  
+  // Allow overriding queue names via environment variables
+  const commandQueueName = process.env.COMMAND_QUEUE || 'commandqueue';
+  const responseQueueName = process.env.RESPONSE_QUEUE || 'responsequeue';
+  console.log(`Using command queue: ${commandQueueName}`);
+  console.log(`Using response queue: ${responseQueueName}`);
+  const cmdQueue = new QueueClient(connStr, commandQueueName);
+  const rspQueue = new QueueClient(connStr, responseQueueName);
+  
+  // Verify queues exist with retry logic (created by ARM template)
+  async function verifyQueuesWithRetry(maxRetries = 10, baseDelay = 5000) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🔄 Queue verification attempt ${attempt}/${maxRetries}`);
+        
+        // Test command queue
+        const cmdProps = await cmdQueue.getProperties();
+        console.log(`✅ Command queue ready: ${cmdProps.name}`);
+        
+        // Test response queue  
+        const rspProps = await rspQueue.getProperties();
+        console.log(`✅ Response queue ready: ${rspProps.name}`);
+        
+        console.log(`🎉 All queues verified successfully on attempt ${attempt}`);
+        return true;
+        
+      } catch (error) {
+        console.error(`❌ Queue verification attempt ${attempt} failed:`, error.message);
+        
+        if (attempt === maxRetries) {
+          console.error(`❌ All ${maxRetries} queue verification attempts failed!`);
+          console.error(`❌ This likely means:`);
+          console.error(`❌ 1. Storage account connection string is invalid`);
+          console.error(`❌ 2. Queues don't exist in storage account`);
+          console.error(`❌ 3. Network connectivity issues`);
+          console.error(`❌ Container will continue but queue operations will fail`);
+          return false;
+        }
+        
+        // Exponential backoff: 5s, 10s, 20s, 40s, etc.
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        console.log(`⏳ Waiting ${delay/1000}s before retry ${attempt + 1}...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    return false;
+  }
+  
+  const queuesReady = await verifyQueuesWithRetry();
 
   const app = express();
   app.use(morgan('combined'));
   app.use(bodyParser.json());
 
   app.get('/health', (_req, res) => {
-    console.log('Health check');
-    res.json({ status: 'ok', shell: shellBin });
+    const healthStatus = {
+      status: 'ok',
+      shell: shellBin,
+      timestamp: new Date().toISOString(),
+      queues: {
+        verified: queuesReady,
+        consecutiveErrors,
+        storageAccount: connStr ? connStr.match(/AccountName=([^;]+)/)?.[1] : 'unknown'
+      },
+      uptime: process.uptime(),
+      memory: process.memoryUsage()
+    };
+    
+    console.log('🩺 Health check:', JSON.stringify(healthStatus, null, 2));
+    res.json(healthStatus);
   });
 
   app.post('/execute', async (req, res) => {
@@ -92,47 +164,84 @@ function runCommand(cmd, opts = {}) {
 
   app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 
-  console.log('Starting polling loop');
-  while (true) {
+  console.log('🚀 Starting resilient polling loop');
+  console.log(`📊 Queue status: ${queuesReady ? 'Ready' : 'Failed verification (will retry operations)'}`);
+  
+  let consecutiveErrors = 0;
+  const maxConsecutiveErrors = 5;
+  
+  /**
+   * Poll the command queue at intervals to process incoming messages.
+   */
+  async function pollQueue() {
     try {
+      console.log('🔍 Polling for commands at', new Date().toISOString());
       const { receivedMessageItems } = await cmdQueue.receiveMessages({ numberOfMessages: 1, visibilityTimeout: 30 });
-      if (!receivedMessageItems.length) {
-        await new Promise(r => setTimeout(r, 5000));
-        continue;
-      }
-      for (const msg of receivedMessageItems) {
-        console.log('Message received');
-        let payload, result;
-        try {
-          payload = JSON.parse(msg.messageText);
-          console.log('Payload:', payload);
-        } catch {
-          console.error('Invalid JSON');
-          result = { success: false, error: 'Bad JSON' };
-        }
-
-        if (!result) {
-          const { command, project_name, message_id } = payload;
-          // Resolve cwd for queue tasks
-          let cwd = project_name && (path.isAbsolute(project_name)
-            ? project_name
-            : path.join(PROJECTS_DIR, project_name));
+      
+      // Reset error counter on successful poll
+      consecutiveErrors = 0;
+      
+      if (receivedMessageItems.length === 0) {
+        console.log('📭 No messages, waiting...');
+      } else {
+        for (const msg of receivedMessageItems) {
+          console.log('Message received');
+          console.log('AZURE_STORAGE_CONNECTION_STRING (on command receive):', connStr);
+          let payload, result;
           try {
-            const { stdout, stderr } = await runCommand(command, { cwd });
-            result = { success: true, stdout, stderr };
-          } catch (e) {
-            console.error('Command error:', e.message);
-            result = { success: false, error: e.message };
+            payload = JSON.parse(msg.messageText);
+            console.log('Payload:', payload);
+          } catch {
+            console.error('Invalid JSON');
+            result = { success: false, error: 'Bad JSON' };
           }
-          await rspQueue.sendMessage(JSON.stringify({ message_id, ...result }));
-          console.log('Response sent for', message_id);
+          if (!result) {
+            const { command, project_name, message_id } = payload;
+            const cwd = project_name && (path.isAbsolute(project_name)
+              ? project_name
+              : path.join(PROJECTS_DIR, project_name));
+            try {
+              const { stdout, stderr } = await runCommand(command, { cwd });
+              result = { success: true, stdout, stderr };
+            } catch (e) {
+              console.error('Command error:', e.message);
+              result = { success: false, error: e.message };
+            }
+            await rspQueue.sendMessage(JSON.stringify({ message_id, ...result }));
+            console.log('Response sent for', message_id);
+          }
+          await cmdQueue.deleteMessage(msg.messageId, msg.popReceipt);
+          console.log('Message deleted');
         }
-        await cmdQueue.deleteMessage(msg.messageId, msg.popReceipt);
-        console.log('Message deleted');
       }
     } catch (err) {
-      console.error('Polling error:', err.message);
-      await new Promise(r => setTimeout(r, 5000));
+      consecutiveErrors++;
+      console.error(`❌ Polling error (${consecutiveErrors}/${maxConsecutiveErrors}):`, err.message);
+      
+      if (consecutiveErrors >= maxConsecutiveErrors) {
+        console.error(`🚨 Too many consecutive polling errors (${maxConsecutiveErrors})`);
+        console.error(`🚨 This might indicate:`);
+        console.error(`🚨 1. Network connectivity issues`);
+        console.error(`🚨 2. Storage account access problems`);
+        console.error(`🚨 3. Queue permissions issues`);
+        console.error(`🔄 Will continue polling but with longer delays...`);
+        
+        // Use longer delay after multiple errors
+        setTimeout(pollQueue, 30000); // 30 seconds
+        return;
+      }
+      
+      // Normal error recovery with exponential backoff
+      const errorDelay = 5000 * Math.pow(2, Math.min(consecutiveErrors - 1, 3)); // Max 40s
+      console.log(`⏳ Error recovery: waiting ${errorDelay/1000}s before next poll...`);
+      setTimeout(pollQueue, errorDelay);
+      return;
     }
+    
+    // Normal polling interval
+    setTimeout(pollQueue, 5000);
   }
+  
+  console.log('🏃 Starting queue polling...');
+  pollQueue();
 })();

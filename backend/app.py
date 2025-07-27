@@ -209,32 +209,47 @@ async def execute_command(request: CommandRequest):
         else:
             print(f"[INFO] Using {request.container_type} container - skipping local container check")
         
-        # For Azure container, deploy sandbox and get connection string
+        # For Azure container, deploy sandbox only if not already deployed
         connection_string = None
         if request.container_type == "azure":
-            print("\n[INFO] Deploying Azure sandbox...")
-            try:
-                from sandbox_image.deploy_sandbox import deploy_sandbox
-                deployment_result = deploy_sandbox()
-                
-                if deployment_result.get("status") == "success":
-                    connection_string = deployment_result.get("storage_connection_string")
-                    # Store connection string for WebSocket streaming
-                    azure_connection_string = connection_string
-                    print(f"[INFO] Azure sandbox deployed successfully")
-                    print(f"[INFO] Deployment ID: {deployment_result.get('id')}")
-                else:
-                    print(f"[ERROR] Failed to deploy Azure sandbox: {deployment_result.get('message')}")
+            # Check if we already have a valid connection string from previous deployment
+            if azure_connection_string and len(azure_connection_string) > 50:
+                print(f"\n[INFO] ♻️  Reusing existing Azure storage account from ARM template...")
+                print(f"[DEBUG] Storage connection string: {azure_connection_string[:50]}...")
+                connection_string = azure_connection_string
+            else:
+                print("\n[INFO] 🚀 Deploying fresh Azure sandbox (first time)...")
+                try:
+                    from sandbox_image.deploy_sandbox import deploy_sandbox
+                    deployment_result = deploy_sandbox()
+                    
+                    if deployment_result.get("status") == "success":
+                        connection_string = deployment_result.get("storage_connection_string")
+                        
+                        if not connection_string or len(connection_string) < 50:
+                            print(f"[ERROR] Invalid connection string from deployment: '{connection_string}'")
+                            return {
+                                "success": False,
+                                "message": f"Invalid connection string from deployment: '{connection_string}'"
+                            }
+                        
+                        azure_connection_string = connection_string
+                        print(f"[INFO] ✅ Azure sandbox deployed successfully")
+                        print(f"[INFO] Deployment ID: {deployment_result.get('id')}")
+                        print(f"[DEBUG] Storage connection string: {connection_string[:50]}...")
+                    else:
+                        print(f"[ERROR] Failed to deploy Azure sandbox: {deployment_result.get('message')}")
+                        return {
+                            "success": False,
+                            "message": f"Failed to deploy Azure sandbox: {deployment_result.get('message')}"
+                        }
+                            
+                except Exception as e:
+                    print(f"[ERROR] Error deploying Azure sandbox: {str(e)}")
                     return {
                         "success": False,
-                        "message": f"Failed to deploy Azure sandbox: {deployment_result.get('message')}"
+                        "message": f"Error deploying Azure sandbox: {str(e)}"
                     }
-            except Exception as e:
-                print(f"[ERROR] Error deploying Azure sandbox: {str(e)}")
-                return {
-                    "success": False,
-                    "message": f"Error deploying Azure sandbox: {str(e)}"
-                }
         
         # Start task in background for real-time streaming
         print("\n[INFO] Starting codex core agent...")
@@ -390,11 +405,16 @@ def appwrite_test():
 async def websocket_commands(websocket: WebSocket):
     """Stream commands from the Azure queue and their responses over WebSocket."""
     await websocket.accept()
-    conn_str = azure_connection_string or os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-    if not conn_str:
+    
+    # Only use connection string from ARM template deployment
+    if not azure_connection_string or len(azure_connection_string) < 50:
+        print("[ERROR] WebSocket: No valid Azure connection string from ARM template")
+        await websocket.send_json({"type": "error", "data": {"message": "Azure storage not properly deployed. Please run /execute first."}})
         await websocket.close(code=1008)
         return
-    queue_mgr = AzureQueueManager(conn_str)
+        
+    print(f"[DEBUG] WebSocket using ARM template connection string: {azure_connection_string[:50]}...")
+    queue_mgr = AzureQueueManager(azure_connection_string)
     task_completed = False
     consecutive_empty_polls = 0
     max_empty_polls = 30  # Stop after 30 consecutive empty polls (30 seconds)

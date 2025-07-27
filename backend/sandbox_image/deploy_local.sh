@@ -47,7 +47,8 @@ docker run -d \
     -p 3000:3000 \
     --mount type=volume,source=$FILE_SHARE,target=/projects \
     -e AZURE_STORAGE_CONNECTION_STRING="$STORAGE_CONNECTION_STRING" \
-    -e QUEUE_NAME="responsequeue" \
+    -e COMMAND_QUEUE="commandqueue" \
+    -e RESPONSE_QUEUE="responsequeue" \
     -e GITHUB_TOKEN="$GITHUB_TOKEN" \
     -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
     local-sandbox

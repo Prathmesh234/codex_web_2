@@ -72,20 +72,49 @@ class MemoryPlugin:
             print("Warning: user_name not provided to prompt_user_for_input; skipping store_user_context call.")
         return user_input
 
-    @kernel_function(description='Store user-provided information (e.g., email, login, preferences) in the agent’s memory. Provide the question asked and the user’s answer as key-value pairs.')
+    @kernel_function(description='Store user-provided information (e.g., email, login, preferences) in the agent\'s memory. Provide the question asked and the user\'s answer as key-value pairs.')
     def store_user_context(self, question: str, answer: str, user_name: str = None) -> str:
         load_dotenv(".env")
-        api_key = os.getenv("OPENAI_API_KEY")
-        client = OpenAI(api_key=api_key)
-        completion = client.beta.chat.completions.parse(
-        model="gpt-4o-2024-08-06",
-        messages=[
-            {"role": "system", "content": MEMORY_AGENT_SYSTEM_PROMPT},
-            {"role": "user", "content": f"User Question : {question} \n User Answer : {answer}"},
-        ],
-        response_format=Memory,
+        
+        # Use OpenRouter configuration
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        base_url = os.getenv("OPENROUTER_BASE_URL")
+        
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY environment variable is required")
+        if not base_url:
+            raise ValueError("OPENROUTER_BASE_URL environment variable is required")
+        
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url
         )
-        memory = completion.choices[0].message.parsed
+        
+        completion = client.chat.completions.create(
+            model="o3-mini",
+            messages=[
+                {"role": "system", "content": MEMORY_AGENT_SYSTEM_PROMPT},
+                {"role": "user", "content": f"User Question : {question} \n User Answer : {answer}"},
+            ],
+            response_format={"type": "json_object"}
+        )
+        
+        # Parse the response as JSON
+        try:
+            import json
+            response_content = completion.choices[0].message.content
+            memory_data = json.loads(response_content)
+            memory = type('Memory', (), {
+                'topic_text': memory_data.get('topic_text', ''),
+                'insights_text': memory_data.get('insights_text', '')
+            })()
+        except Exception as e:
+            print(f"Error parsing memory response: {e}")
+            memory = type('Memory', (), {
+                'topic_text': question,
+                'insights_text': answer
+            })()
+        
         print(f"Debug: store_user_context called with question={question}, answer={answer}, user_name={user_name}")
         non_persistent_list.append({question: answer})
         print(f"Debug: Current memory state: {non_persistent_list}")
