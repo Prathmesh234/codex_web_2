@@ -124,6 +124,38 @@ web_agent_websockets = {}  # session_id -> websocket
 # Add a global dict to store session parameters
 web_agent_session_params = {}  # session_id -> {user_task, user_name, cdp_url}
 
+# Global dict to store active codex agent WebSocket connections
+codex_websockets = {}  # connection_id -> websocket
+
+# Function to broadcast command/response to all connected codex WebSockets
+async def broadcast_to_codex_websockets(message_type: str, data: dict):
+    """Broadcast command or response to all connected codex WebSockets"""
+    if not codex_websockets:
+        print(f"[DEBUG] No WebSocket connections to broadcast {message_type}")
+        return
+    
+    message = {"type": message_type, "data": data}
+    disconnected_connections = []
+    
+    print(f"[DEBUG] Broadcasting {message_type} to {len(codex_websockets)} WebSocket(s)")
+    
+    for connection_id, websocket in codex_websockets.items():
+        try:
+            if websocket.application_state == WebSocketState.CONNECTED:
+                await websocket.send_json(message)
+                print(f"[DEBUG] Sent {message_type} to WebSocket {connection_id}")
+            else:
+                disconnected_connections.append(connection_id)
+        except Exception as e:
+            print(f"[ERROR] Failed to send {message_type} to WebSocket {connection_id}: {e}")
+            disconnected_connections.append(connection_id)
+    
+    # Clean up disconnected WebSockets
+    for connection_id in disconnected_connections:
+        if connection_id in codex_websockets:
+            del codex_websockets[connection_id]
+            print(f"[DEBUG] Cleaned up disconnected WebSocket {connection_id}")
+
 async def publish_web_agent_thought(session_id: str, message: str):
     websocket = web_agent_websockets.get(session_id)
     if websocket:
@@ -260,16 +292,38 @@ async def execute_command(request: CommandRequest):
         # Start the task in background
         task_id = f"task_{int(time.time())}"
         
-        def run_task_in_background():
+        async def run_task_in_background():
             try:
-                command_history = complete_task(request.task, request.repo_url, project_name, request.container_type, connection_string)
+                # Use the streaming version that broadcasts to WebSockets
+                from codex_agent.codex_core_agent import complete_task_with_ws_streaming
+                command_history = await complete_task_with_ws_streaming(
+                    task_name=request.task,
+                    repo_url=request.repo_url, 
+                    project_name=project_name,
+                    container_type=request.container_type,
+                    connection_string=connection_string,
+                    broadcast_func=broadcast_to_codex_websockets,
+                    task_id=task_id
+                )
                 print(f"[INFO] Task {task_id} completed with {len(command_history)} commands")
+                
+                # Send completion message
+                await broadcast_to_codex_websockets("completion", {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "message": "Task completed successfully"
+                })
             except Exception as e:
                 print(f"[ERROR] Task {task_id} failed: {str(e)}")
+                # Send error message
+                await broadcast_to_codex_websockets("error", {
+                    "task_id": task_id,
+                    "status": "error", 
+                    "message": str(e)
+                })
         
-        # Start in background thread
-        import threading
-        threading.Thread(target=run_task_in_background, daemon=True).start()
+        # Start in background asyncio task
+        asyncio.create_task(run_task_in_background())
         
         print(f"[INFO] Task {task_id} started in background")
         
@@ -403,64 +457,42 @@ def appwrite_test():
 
 @app.websocket("/ws/commands")
 async def websocket_commands(websocket: WebSocket):
-    """Stream commands from the Azure queue and their responses over WebSocket."""
+    """Simple WebSocket proxy that receives broadcasted commands and responses."""
     await websocket.accept()
     
-    # Only use connection string from ARM template deployment
-    if not azure_connection_string or len(azure_connection_string) < 50:
-        print("[ERROR] WebSocket: No valid Azure connection string from ARM template")
-        await websocket.send_json({"type": "error", "data": {"message": "Azure storage not properly deployed. Please run /execute first."}})
-        await websocket.close(code=1008)
-        return
-        
-    print(f"[DEBUG] WebSocket using ARM template connection string: {azure_connection_string[:50]}...")
-    queue_mgr = AzureQueueManager(azure_connection_string)
-    task_completed = False
-    consecutive_empty_polls = 0
-    max_empty_polls = 30  # Stop after 30 consecutive empty polls (30 seconds)
+    # Generate a unique connection ID
+    import uuid
+    connection_id = str(uuid.uuid4())
+    
+    # Register this WebSocket connection
+    codex_websockets[connection_id] = websocket
+    print(f"[INFO] WebSocket connected: {connection_id}")
+    
+    # Send connection confirmation
+    await websocket.send_json({
+        "type": "connection", 
+        "data": {
+            "message": "WebSocket connected. Waiting for commands...",
+            "connection_id": connection_id
+        }
+    })
     
     try:
-        while not task_completed:
-            cmd = await asyncio.to_thread(queue_mgr.receive_command)
-            if not cmd:
-                consecutive_empty_polls += 1
-                if consecutive_empty_polls >= max_empty_polls:
-                    logger.info("No commands received for 30 seconds, stopping polling")
-                    break
-                await asyncio.sleep(1)
-                continue
-            
-            consecutive_empty_polls = 0  # Reset counter when we get a command
-            await websocket.send_json({"type": "command", "data": cmd})
-            
-            try:
-                message_id = cmd.get("message_id")
-                if message_id is None:
-                    logger.warning("Command has no message_id, skipping response wait")
-                    continue
-                resp = await asyncio.to_thread(queue_mgr.wait_for_response, message_id)
-                await websocket.send_json({"type": "response", "data": resp})
-                
-                # Check if this indicates task completion
-                if resp.get("status") == "completed" or resp.get("task_completed") == True:
-                    task_completed = True
-                    logger.info("Task completed, stopping command polling")
-                    break
-                    
-            except TimeoutError:
-                logger.warning(f"Timeout waiting for response to command {cmd.get('message_id')}")
-                await websocket.send_json({"type": "error", "data": {"message": "Command timeout"}})
-                break
-            except Exception as e:
-                logger.error(f"Error processing command response: {str(e)}")
-                await websocket.send_json({"type": "error", "data": {"message": str(e)}})
+        # Keep connection alive and listen for disconnect
+        while True:
+            # Just keep the connection alive - commands/responses are broadcasted from background task
+            await asyncio.sleep(1)
+            if websocket.application_state != WebSocketState.CONNECTED:
                 break
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected")
+        print(f"[INFO] WebSocket disconnected: {connection_id}")
     except Exception as e:
-        logger.error(f"Error in websocket_commands: {str(e)}")
+        print(f"[ERROR] WebSocket error: {e}")
     finally:
-        logger.info("Closing WebSocket connection")
+        # Clean up connection
+        if connection_id in codex_websockets:
+            del codex_websockets[connection_id]
+        print(f"[INFO] WebSocket cleaned up: {connection_id}")
 
 @app.post("/api/orchestrator")
 async def orchestrator_endpoint(request: OrchestratorRequest):

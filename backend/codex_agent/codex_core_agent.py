@@ -3,6 +3,8 @@ import json
 import logging
 import sys
 import argparse
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 from dotenv import load_dotenv
@@ -45,20 +47,16 @@ parent_env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=parent_env_path)
 print(f"[INFO] Also loading .env from: {parent_env_path}")
 
-# Initialize OpenRouter client
-openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-openrouter_base_url = os.getenv("OPENROUTER_BASE_URL")
+# Initialize OpenAI client
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
-if not openrouter_api_key:
-    raise ValueError("OPENROUTER_API_KEY environment variable is required")
-if not openrouter_base_url:
-    raise ValueError("OPENROUTER_BASE_URL environment variable is required")
+if not openai_api_key:
+    raise ValueError("OPENAI_API_KEY environment variable is required")
 
 client = OpenAI(
-    api_key=openrouter_api_key,
-    base_url=openrouter_base_url
+    api_key=openai_api_key
 )
-print("[INFO] OpenRouter client initialized with o3-mini model")
+print("[INFO] OpenAI client initialized with gpt-4o-mini model")
 
 # Initialize Jinja environment
 template_dir = Path(__file__).parent
@@ -94,6 +92,184 @@ def execute_command(command: str, project_name: Optional[str], container_type: s
     else:
         print(f"[DEBUG] Executing command locally: {command}")
         return execute_terminal_command(command)
+
+async def complete_task_with_ws_streaming(task_name: str, repo_url: str, project_name: str, container_type: str, connection_string: str, broadcast_func, task_id: str) -> List[Tuple[str, str]]:
+    """
+    Complete task with WebSocket streaming - broadcasts commands/responses in real-time
+    """
+    import asyncio
+    
+    print(f"\n[INFO] Starting task: {task_name}")
+    logger.info(f"Starting task: {task_name} with {container_type} container")
+    
+    # Initialize Azure queue if using azure container
+    azure_queue = None
+    if container_type == "azure" and connection_string:
+        azure_queue = initialize_azure_queue(connection_string)
+        if not azure_queue:
+            raise Exception("Failed to initialize Azure queue")
+        print("[INFO] Using azure container instance")
+    else:
+        print("[INFO] Using local container")
+    
+    # Clone repository first
+    print(f"\n[INFO] Cloning repository: {repo_url}")
+    logger.info(f"Cloning repository: {repo_url}")
+    
+    project_path = f"/projects/{project_name}"
+    clone_command = f"git clone {repo_url} {project_path}"
+    
+    # Broadcast git clone command
+    await broadcast_func("command", {
+        "command": clone_command,
+        "task_id": task_id,
+        "timestamp": time.time(),
+        "message_id": f"clone_{task_id}"
+    })
+    
+    clone_result = execute_command(clone_command, None, container_type, azure_queue)
+    
+    # Broadcast git clone response
+    await broadcast_func("response", {
+        "task_id": task_id,
+        "message_id": f"clone_{task_id}",
+        "success": clone_result.get("success"),
+        "stdout": clone_result.get("stdout", ""),
+        "stderr": clone_result.get("stderr", ""),
+        "output": clone_result.get("stdout", clone_result.get("stderr", ""))
+    })
+    
+    if not clone_result.get("success"):
+        error_msg = f"Failed to clone repository: {clone_result.get('error', 'Unknown error')}"
+        await broadcast_func("error", {"task_id": task_id, "message": error_msg})
+        raise Exception(error_msg)
+    
+    print(f"\n[INFO] Repository cloned successfully. Working directory: {project_path}")
+    
+    # Initialize command history
+    command_history = []
+    
+    # Main task loop
+    for iteration in range(50):  # Max 50 commands
+        print(f"\n[INFO] === Iteration {iteration + 1} ===")
+        
+        # Generate command prompt
+        prompt = template.render(
+            task_name=task_name,
+            command_history=command_history,
+            current_time=datetime.now().isoformat(),
+            total_commands=len(command_history)
+        )
+        
+        print(f"\n[INFO] Generated prompt:")
+        print("-" * 50)
+        print(prompt)
+        print("-" * 50)
+        
+        # Get command from OpenAI API
+        print("\n[INFO] Calling OpenAI API...")
+        logger.info("Making OpenAI API call with gpt-4o-mini model")
+        
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=500
+            )
+            
+            # Debug the full API response
+            print(f"[DEBUG] 🤖 OpenAI API Response:")
+            print(f"[DEBUG] 🤖 Response ID: {getattr(response, 'id', 'No ID')}")
+            print(f"[DEBUG] 🤖 Model used: {getattr(response, 'model', 'Unknown model')}")
+            print(f"[DEBUG] 🤖 Choices count: {len(response.choices) if response.choices else 0}")
+            print(f"[DEBUG] 🤖 Finish reason: {response.choices[0].finish_reason if response.choices and len(response.choices) > 0 else 'No finish reason'}")
+            print(f"[DEBUG] 🤖 Message role: {response.choices[0].message.role if response.choices and len(response.choices) > 0 and response.choices[0].message else 'No role'}")
+            print(f"[DEBUG] 🤖 Raw content: '{response.choices[0].message.content if response.choices and len(response.choices) > 0 and response.choices[0].message else 'No content'}'")
+            print(f"[DEBUG] 🤖 Content length: {len(response.choices[0].message.content) if response.choices and len(response.choices) > 0 and response.choices[0].message and response.choices[0].message.content else 0}")
+            
+            if response.choices and len(response.choices) > 0:
+                command = response.choices[0].message.content.strip()
+            else:
+                print("[ERROR] 🤖 No choices in OpenAI API response!")
+                logger.error("No choices in OpenAI API response")
+                command = ""
+                
+        except Exception as api_error:
+            print(f"[ERROR] 🤖 OpenAI API call failed: {str(api_error)}")
+            logger.error(f"OpenAI API call failed: {str(api_error)}")
+            print("[INFO] Retrying with a simple fallback command...")
+            command = "pwd"  # Simple fallback command
+        
+        print(f"\n[INFO] Generated command: '{command}'")
+        logger.info(f"Generated command: '{command}'")
+        
+        # Log empty commands but continue execution
+        if not command or command.strip() == "":
+            print("\n[WARNING] 🤖 OpenAI API returned empty command - will attempt to execute anyway")
+            logger.warning("OpenAI API returned empty command - will attempt to execute anyway")
+            print("[INFO] This might be due to API rate limiting or model issues")
+        
+        print(f"\n[INFO] Executing command: {command}")
+        logger.info(f"Executing command: {command}")
+        
+        # Check for completion signal
+        if command == "TASK_COMPLETED":
+            print("\n[INFO] ✅ Task completed successfully!")
+            logger.info("Task completed successfully")
+            await broadcast_func("completion", {
+                "task_id": task_id,
+                "status": "completed",
+                "message": "Task completed - TASK_COMPLETED signal received"
+            })
+            break
+        
+        # Generate message ID for this command
+        message_id = f"cmd_{task_id}_{iteration}"
+        
+        # Broadcast command before execution
+        await broadcast_func("command", {
+            "command": command,
+            "task_id": task_id,
+            "timestamp": time.time(),
+            "message_id": message_id
+        })
+        
+        # Execute command
+        result = execute_command(command, project_path, container_type, azure_queue)
+        
+        # Extract output
+        output = result.get("stdout") or result.get("output") or result.get("stderr") or "No output"
+        
+        # Broadcast response after execution
+        await broadcast_func("response", {
+            "task_id": task_id,
+            "message_id": message_id,
+            "success": result.get("success"),
+            "stdout": result.get("stdout", ""),
+            "stderr": result.get("stderr", ""),
+            "output": output
+        })
+        
+        print(f"\n[INFO] Command output:")
+        print("-" * 50)
+        print(output)
+        print("-" * 50)
+        logger.info(f"Command output: {output}")
+        
+        # Add to command history
+        command_history.append((command, output))
+        
+        # Simulated approval for streaming mode
+        print("Do you want to continue with the next command? (y/n): y")
+        print("[INFO] Auto-approved command for real-time streaming")
+    
+    return command_history
 
 def complete_task(task_name: str, repo_url: str, project_name: str, container_type: str = "azure", connection_string: Optional[str] = None) -> List[Tuple[str, str]]:
     """
@@ -165,13 +341,13 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
             print(prompt)
             print("-" * 50)
             
-            # Get command from OpenRouter API
-            print("\n[INFO] Calling OpenRouter API...")
-            logger.info("Making OpenRouter API call with o3-mini model")
+            # Get command from OpenAI API
+            print("\n[INFO] Calling OpenAI API...")
+            logger.info("Making OpenAI API call with gpt-4o-mini model")
             
             try:
                 response = client.chat.completions.create(
-                    model="o3-mini",
+                    model="gpt-4o-mini",
                     messages=[
                         {
                             "role": "system",
@@ -183,7 +359,7 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
                 )
                 
                 # Debug the full API response
-                print(f"[DEBUG] 🤖 OpenRouter API Response:")
+                print(f"[DEBUG] 🤖 OpenAI API Response:")
                 print(f"[DEBUG] 🤖 Response ID: {getattr(response, 'id', 'No ID')}")
                 print(f"[DEBUG] 🤖 Model used: {getattr(response, 'model', 'Unknown model')}")
                 print(f"[DEBUG] 🤖 Choices count: {len(response.choices) if response.choices else 0}")
@@ -198,13 +374,13 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
                     
                     command = raw_content.strip() if raw_content else ""
                 else:
-                    print("[ERROR] 🤖 No choices in OpenRouter API response!")
-                    logger.error("No choices in OpenRouter API response")
+                    print("[ERROR] 🤖 No choices in OpenAI API response!")
+                    logger.error("No choices in OpenAI API response")
                     command = ""
                     
             except Exception as api_error:
-                print(f"[ERROR] 🤖 OpenRouter API call failed: {str(api_error)}")
-                logger.error(f"OpenRouter API call failed: {str(api_error)}")
+                print(f"[ERROR] 🤖 OpenAI API call failed: {str(api_error)}")
+                logger.error(f"OpenAI API call failed: {str(api_error)}")
                 print("[INFO] Retrying with a simple fallback command...")
                 command = "pwd"  # Simple fallback command
             
@@ -213,8 +389,8 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
             
             # Log empty commands but continue execution
             if not command or command.strip() == "":
-                print("\n[WARNING] 🤖 OpenRouter API returned empty command - will attempt to execute anyway")
-                logger.warning("OpenRouter API returned empty command - will attempt to execute anyway")
+                print("\n[WARNING] 🤖 OpenAI API returned empty command - will attempt to execute anyway")
+                logger.warning("OpenAI API returned empty command - will attempt to execute anyway")
                 print("[INFO] This might be due to API rate limiting or model issues")
             
             # Check if task is complete

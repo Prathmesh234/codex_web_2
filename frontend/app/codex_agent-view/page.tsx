@@ -79,19 +79,22 @@ export default function CodexAgentViewPage() {
           setCurrentCommand(command);
           console.log('Received command:', command);
         } else if (data.type === 'response') {
-          const command = data.data.command || 'Unknown command';
+          const messageId = data.data.message_id;
           const response = data.data.stdout || data.data.output || data.data.stderr || 'No output';
           const timestamp = new Date().toLocaleTimeString();
           
+          // Find the matching pending command by message_id or use the most recent one
+          const pendingCommand = pendingCommands.length > 0 ? pendingCommands[0] : { command: 'Unknown command', timestamp: timestamp };
+          
           // Move from pending to history
           setCommandHistory(prev => [...prev, {
-            command: command,
+            command: pendingCommand.command,
             response: response,
             timestamp: timestamp
           }]);
           
-          // Remove from pending commands
-          setPendingCommands(prev => prev.filter(cmd => cmd.command !== command));
+          // Remove the first pending command (FIFO order)
+          setPendingCommands(prev => prev.slice(1));
           
           setCurrentCommand('');
           console.log('Received response:', response);
@@ -105,6 +108,12 @@ export default function CodexAgentViewPage() {
           }
         } else if (data.type === 'error') {
           console.error('WebSocket error:', data.data.message);
+          setCurrentCommand('');
+        } else if (data.type === 'connection') {
+          console.log('WebSocket connection confirmed:', data.data.message);
+        } else if (data.type === 'completion') {
+          console.log('Task completed:', data.data.message);
+          setExecuteStatus('completed');
           setCurrentCommand('');
         }
       } catch (error) {
@@ -211,11 +220,13 @@ export default function CodexAgentViewPage() {
         setExecuteResponse(data);
         console.log('Execute response:', data);
         
-        // Connect websocket immediately for real-time streaming
-        console.log('Task started, connecting websocket for real-time updates...');
+        // Connect websocket after delay to allow container to process first command
+        console.log('Task started, waiting 10 seconds before connecting websocket...');
         setShouldShowWsStatus(true);
-        setWsConnecting(true);
-        attemptContainerConnection();
+        setTimeout(() => {
+          setWsConnecting(true);
+          attemptContainerConnection();
+        }, 10000);
       } else {
         setExecuteStatus('error');
         setExecuteResponse(data);

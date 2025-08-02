@@ -19,22 +19,24 @@ class AzureQueueManager:
             self.queue_client = QueueClient.from_connection_string(connection_string, cmd_queue)
             self.response_queue = QueueClient.from_connection_string(connection_string, resp_queue)
             self.pending_messages = set()  # Track pending message IDs
+            # Queue creation is disabled; only connect to existing queues
+            # try:
             
-            # Verify queues exist (created by ARM template)
-            try:
-                cmd_properties = self.queue_client.get_queue_properties()
-                print(f"[DEBUG] ✅ Connected to command queue '{cmd_properties.name}'")
-            except Exception as e:
-                print(f"[ERROR] Command queue '{cmd_queue}' does not exist: {e}")
-                raise
-                
-            try:
-                resp_properties = self.response_queue.get_queue_properties()
-                print(f"[DEBUG] ✅ Connected to response queue '{resp_properties.name}'")
-            except Exception as e:
-                print(f"[ERROR] Response queue '{resp_queue}' does not exist: {e}")
-                raise
-                
+            #     self.queue_client.create_queue()
+            #     print(f"[DEBUG] ✅ Command queue '{queue_name}' created/verified")
+            # except Exception as e:
+            #     if "QueueAlreadyExists" in str(e):
+            #         print(f"[DEBUG] ✅ Command queue '{queue_name}' already exists")
+            #     else:
+            #         print(f"[DEBUG] ⚠️  Command queue creation issue: {e}")
+            # try:
+            #     self.response_queue.create_queue()
+            #     print(f"[DEBUG] ✅ Response queue 'responsequeue' created/verified")
+            # except Exception as e:
+            #     if "QueueAlreadyExists" in str(e):
+            #         print(f"[DEBUG] ✅ Response queue 'responsequeue' already exists")
+            #     else:
+            #         print(f"[DEBUG] ⚠️  Response queue creation issue: {e}")
             print("[DEBUG] AzureQueueManager initialized successfully")
         except Exception as e:
             print(f"[ERROR] Failed to create QueueClient: {str(e)}")
@@ -73,15 +75,6 @@ class AzureQueueManager:
         try:
             result = self.queue_client.send_message(json.dumps(message))
             print(f"[DEBUG] ✅ Message sent successfully. Result: {result}")
-            
-            # Show exact storage account and queue details for comparison with Azure Portal
-            print(f"[DEBUG] 🎯 AZURE PORTAL VERIFICATION:")
-            print(f"[DEBUG] 🎯 Storage Account Name: {self.queue_client.account_name}")
-            print(f"[DEBUG] 🎯 Queue Name: {self.queue_client.queue_name}")
-            print(f"[DEBUG] 🎯 Full Queue URL: {self.queue_client.url}")
-            print(f"[DEBUG] 🎯 Message ID: {result.get('id', 'unknown')}")
-            print(f"[DEBUG] 🎯 Message Content: {json.dumps(message)}")
-            
         except Exception as e:
             print(f"[DEBUG] ❌ Failed to send message: {e}")
             raise
@@ -100,31 +93,6 @@ class AzureQueueManager:
                     print(f"[DEBUG]   Message {i+1}: ID={content.get('message_id', 'unknown')}, command='{content.get('command', 'unknown')[:50]}...'")
                 except:
                     print(f"[DEBUG]   Message {i+1}: Raw content={msg.content[:100]}...")
-            
-            # EXTRA VERIFICATION: Try to receive (but don't delete) the message we just sent
-            print(f"[DEBUG] 🔍 EXTRA VERIFICATION - Attempting to receive message:")
-            received_messages = self.queue_client.receive_messages(max_messages=1, visibility_timeout=10)
-            received_count = 0
-            for received_msg in received_messages:
-                received_count += 1
-                try:
-                    received_content = json.loads(received_msg.content)
-                    if received_content.get('message_id') == message_id:
-                        print(f"[DEBUG] ✅ CONFIRMED: Message {message_id} successfully received from queue!")
-                        print(f"[DEBUG] ✅ This proves the message is actually in Azure Storage!")
-                    else:
-                        print(f"[DEBUG] ⚠️  Received different message: {received_content.get('message_id')}")
-                except Exception as parse_error:
-                    print(f"[DEBUG] ⚠️  Could not parse received message: {parse_error}")
-                
-                # Important: Make message visible again (don't delete it)
-                self.queue_client.update_message(received_msg.id, received_msg.pop_receipt, visibility_timeout=0)
-                print(f"[DEBUG] 🔄 Made message visible again for container to process")
-                break
-            
-            if received_count == 0:
-                print(f"[DEBUG] ❌ PROBLEM: Could not receive the message we just sent!")
-                print(f"[DEBUG] ❌ This indicates the message might not actually be in the queue!")
                     
         except Exception as e:
             print(f"[DEBUG] ⚠️  Could not verify queue depth: {e}")
