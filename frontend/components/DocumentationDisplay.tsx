@@ -14,6 +14,11 @@ interface BrowserDoc {
   error?: string;
 }
 
+interface SessionData {
+  browsers?: Record<string, BrowserDoc>;
+  task?: string;
+}
+
 interface DocumentationDisplayProps {
   sessionId: string;
   browsers: Record<string, BrowserDoc>;
@@ -22,7 +27,7 @@ interface DocumentationDisplayProps {
 
 export default function DocumentationDisplay({ sessionId, browsers, taskCompleted }: DocumentationDisplayProps) {
   const [expanded, setExpanded] = useState(false);
-  const [sessionData, setSessionData] = useState<any>(null);
+  const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Check if any browser has completed documentation

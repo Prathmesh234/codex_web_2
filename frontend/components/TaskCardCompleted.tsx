@@ -9,8 +9,12 @@ interface TaskCardCompletedProps {
   branchName: string
   browserCount: number
   sessionId?: string
-  browsers?: Record<string, any>
-  documentation?: Record<string, any>
+  browsers?: Record<string, {
+    live_view_url: string
+    session_id: string
+    subtask: string
+  }>
+  documentation?: Record<string, unknown>
   repoInfo?: {
     repoName: string
     branchName: string
