@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,10 +14,35 @@ interface BrowserInfo {
   live_view_url: string;
   session_id: string;
   subtask: string;
+  documentation?: {
+    response: string;
+    timestamp: string;
+  };
 }
 
+interface RepoInfo {
+  repoName: string;
+  branchName: string;
+  cloneUrl: string;
+  fullRepoName: string;
+}
 
-export default function BrowserViewPage() {
+interface SessionBrowser {
+  status?: string;
+  documentation?: {
+    response: string;
+    timestamp: string;
+  };
+  error?: string;
+}
+
+interface SessionData {
+  browsers?: Record<string, SessionBrowser>;
+  task?: string;
+  repo_info?: RepoInfo;
+}
+
+function BrowserViewContent() {
   const searchParams = useSearchParams();
   const [browsers, setBrowsers] = useState<Record<string, BrowserInfo>>({});
   const [taskMessage, setTaskMessage] = useState('');
@@ -26,17 +51,16 @@ export default function BrowserViewPage() {
   const [waiting, setWaiting] = useState(true);
   const [expandedIframe, setExpandedIframe] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string>('');
-  const [sessionData, setSessionData] = useState<any>(null);
+  const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [taskCompleted, setTaskCompleted] = useState(false);
-  const [githubToken, setGithubToken] = useState<string | null>(null);
-  const [urlRepoInfo, setUrlRepoInfo] = useState<any>(null);
+  const [githubToken] = useState<string | null>(null);
+  const [urlRepoInfo, setUrlRepoInfo] = useState<RepoInfo | null>(null);
   const [urlGithubToken, setUrlGithubToken] = useState<string | null>(null);
 
   useEffect(() => {
     // Get browser data and session_id from URL parameters
     const browsersParam = searchParams?.get('browsers');
     const messageParam = searchParams?.get('message');
-    const sessionParam = searchParams?.get('session_id');
     const repoInfoParam = searchParams?.get('repo_info');
     const githubTokenParam = searchParams?.get('github_token');
     
@@ -83,13 +107,13 @@ export default function BrowserViewPage() {
       try {
         const response = await fetch(`/api/browser-session/${sessionId}`);
         if (response.ok) {
-          const data = await response.json();
+          const data: SessionData = await response.json();
           setSessionData(data);
           console.log('Session data received:', data);
-          
+
           // Check if all browsers are completed
           const browserValues = Object.values(data.browsers || {});
-          const completedCount = browserValues.filter((browser: any) => 
+          const completedCount = browserValues.filter(browser =>
             browser.status === 'completed'
           ).length;
           
@@ -218,25 +242,25 @@ export default function BrowserViewPage() {
                     try {
                       // Fetch fresh session data to get all documentation
                       const response = await fetch(`/api/browser-session/${sessionId}`);
-                      let sessionData = null;
+                      let sessionData: SessionData | null = null;
                       if (response.ok) {
                         sessionData = await response.json();
                       }
-                      
+
                       const sessionParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
                       const browsersParam = browsers ? `&browsers=${encodeURIComponent(JSON.stringify(browsers))}` : '';
-                      
+
                       // Get documentation from session data if available, otherwise from browsers
-                      const documentationData: Record<string, any> = {};
+                      const documentationData: Record<string, unknown> = {};
                       if (sessionData?.browsers) {
-                        Object.entries(sessionData.browsers).forEach(([key, browser]: [string, any]) => {
+                        Object.entries(sessionData.browsers).forEach(([key, browser]) => {
                           if (browser.documentation) {
                             documentationData[key] = browser.documentation;
                           }
                         });
                       } else {
                         // Fallback to browsers prop
-                        Object.entries(browsers).forEach(([key, browser]: [string, any]) => {
+                        Object.entries(browsers).forEach(([key, browser]) => {
                           if (browser.documentation) {
                             documentationData[key] = browser.documentation;
                           }
@@ -428,3 +452,10 @@ onClick={() => window.open(browserInfo.live_view_url, '_blank')}
     </div>
   );
 } 
+export default function BrowserViewPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <BrowserViewContent />
+    </Suspense>
+  );
+}

@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import ChatButton from '@/components/ChatButton';
 import ChatTextArea from '@/components/ChatTextArea';
-import ChatCard from '@/components/ChatCard';
 import { RepoSelector } from '@/components/RepoSelector';
 import { BranchSelector } from '@/components/BranchSelector';
 import { BrowserCountSelector } from '@/components/BrowserCountSelector';
@@ -20,11 +19,10 @@ import {
 } from "@/components/ui/tooltip";
 import DarkModeToggle from '@/components/DarkModeToggle';
 import KeySidebar from '@/components/KeySidebar';
-// @ts-ignore
 import { Client, Account, Models } from 'appwrite';
 
 const client = new Client()
-  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "")
+  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT || "https://fra.cloud.appwrite.io/v1")
   .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID || "");
 const account = new Account(client);
 
@@ -54,9 +52,9 @@ interface Branch {
 
 export default function ChatPage() {
   const router = useRouter();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
-  const [isFirstMessage, setIsFirstMessage] = useState(true);
+  const [, setIsFirstMessage] = useState(true);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [githubToken, setGithubToken] = useState<string | null>(null);
@@ -73,14 +71,6 @@ export default function ChatPage() {
   const [reposLoading, setReposLoading] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isKeySidebarOpen, setKeySidebarOpen] = useState(false);
-
-  // Format current time
-  const formatTime = () => {
-    return new Intl.DateTimeFormat('en-US', {
-      hour: 'numeric',
-      minute: 'numeric',
-    }).format(new Date());
-  };
 
   // Fetch GitHub repositories
   const fetchRepositories = async (token: string) => {
@@ -294,7 +284,7 @@ export default function ChatPage() {
           router.replace('/');
         } else {
           // Get the GitHub access token
-          const token = (session as any).providerAccessToken;
+          const token = session.providerAccessToken;
           setGithubToken(token);
           console.log('GitHub Access Token:', token);
           // Store the token in localStorage for cross-page access
