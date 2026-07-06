@@ -1,18 +1,31 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Bot, Loader2 } from 'lucide-react';
 import CodexTerminal from '@/components/CodexTerminal';
 
-export default function CodexAgentViewPage() {
+interface RepoInfo {
+  repoName: string;
+  branchName: string;
+  cloneUrl: string;
+  fullRepoName: string;
+}
+
+interface ExecuteResponse {
+  message?: string;
+  stdout?: string;
+  command_history?: Array<[string, string]>;
+}
+
+function CodexAgentViewContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
   const [task, setTask] = useState<string>('');
-  const [githubToken, setGithubToken] = useState<string>('');
-  const [repoInfo, setRepoInfo] = useState<any>(null);
+  const [, setGithubToken] = useState<string>('');
+  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [executeStatus, setExecuteStatus] = useState<'idle' | 'loading' | 'completed' | 'error'>('idle');
   const [commandHistory, setCommandHistory] = useState<Array<{command: string, response: string, timestamp: string}>>([]);
   const [currentCommand, setCurrentCommand] = useState<string>('');
@@ -20,15 +33,10 @@ export default function CodexAgentViewPage() {
   const [wsConnected, setWsConnected] = useState<boolean>(false);
   const [wsConnecting, setWsConnecting] = useState<boolean>(false);
   const [shouldShowWsStatus, setShouldShowWsStatus] = useState<boolean>(false);
-  const [executeResponse, setExecuteResponse] = useState<any>(null);
+  const [executeResponse, setExecuteResponse] = useState<ExecuteResponse | null>(null);
   const [containerStatus, setContainerStatus] = useState<'unknown' | 'running' | 'not_running'>('unknown');
   const [containerMessage, setContainerMessage] = useState<string>('');
   const [containerConnecting, setContainerConnecting] = useState<boolean>(false);
-
-  // Generate a unique session ID using the same pattern as browser agent
-  const sessionId = React.useMemo(() => {
-    return crypto.randomUUID();
-  }, []);
 
   // Use refs to store WebSocket and timeout references
   const wsRef = useRef<WebSocket | null>(null);
@@ -79,7 +87,6 @@ export default function CodexAgentViewPage() {
           setCurrentCommand(command);
           console.log('Received command:', command);
         } else if (data.type === 'response') {
-          const messageId = data.data.message_id;
           const response = data.data.stdout || data.data.output || data.data.stderr || 'No output';
           const timestamp = new Date().toLocaleTimeString();
           
@@ -254,9 +261,9 @@ export default function CodexAgentViewPage() {
 
     if (!searchParams) return;
 
-    const taskParam = searchParams.get('task');
-    const githubTokenParam = searchParams.get('github_token');
-    const repoInfoParam = searchParams.get('repo_info');
+    const taskParam = searchParams?.get('task');
+    const githubTokenParam = searchParams?.get('github_token');
+    const repoInfoParam = searchParams?.get('repo_info');
 
     if (taskParam) {
       const decodedTask = decodeURIComponent(taskParam);
@@ -450,5 +457,12 @@ export default function CodexAgentViewPage() {
         </div>
       </div>
     </div>
+  );
+}
+export default function CodexAgentViewPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <CodexAgentViewContent />
+    </Suspense>
   );
 }

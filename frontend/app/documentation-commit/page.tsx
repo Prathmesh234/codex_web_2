@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,15 +8,32 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ArrowLeft, GitCommit, FileText, Check, X, AlertCircle, ArrowRight } from 'lucide-react';
 
-export default function DocumentationCommitPage() {
+interface DocEntry {
+  response?: string;
+  timestamp?: string;
+}
+
+interface RepoInfo {
+  repoName: string;
+  branchName: string;
+  cloneUrl: string;
+  fullRepoName: string;
+}
+
+interface SessionData {
+  task?: string;
+  browsers?: Record<string, { documentation?: DocEntry }>;
+}
+
+function DocumentationCommitContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  
+
   const [sessionId, setSessionId] = useState<string>('');
-  const [browsers, setBrowsers] = useState<Record<string, any>>({});
-  const [documentation, setDocumentation] = useState<Record<string, any>>({});
+  const [browsers, setBrowsers] = useState<Record<string, unknown>>({});
+  const [documentation, setDocumentation] = useState<Record<string, DocEntry>>({});
   const [originalTask, setOriginalTask] = useState<string>('');
-  const [repoInfo, setRepoInfo] = useState<any>(null);
+  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [pullRequestMessage, setPullRequestMessage] = useState('');
   const [pullRequestDescription, setPullRequestDescription] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
@@ -28,12 +45,12 @@ export default function DocumentationCommitPage() {
   useEffect(() => {
     console.log("DocumentationCommitPage: Parsing URL parameters...");
 
-    const sessionParam = searchParams.get('session_id');
-    const browsersParam = searchParams.get('browsers');
-    const docParam = searchParams.get('documentation');
-    const taskParam = searchParams.get('task');
-    const githubTokenParam = searchParams.get('github_token');
-    const repoInfoParam = searchParams.get('repo_info');
+    const sessionParam = searchParams?.get('session_id');
+    const browsersParam = searchParams?.get('browsers');
+    const docParam = searchParams?.get('documentation');
+    const taskParam = searchParams?.get('task');
+    const githubTokenParam = searchParams?.get('github_token');
+    const repoInfoParam = searchParams?.get('repo_info');
 
     if (sessionParam) {
       console.log('Received session_id:', sessionParam);
@@ -102,16 +119,16 @@ export default function DocumentationCommitPage() {
     try {
       const response = await fetch(`/api/browser-session/${sessionId}`);
       if (response.ok) {
-        const sessionData = await response.json();
+        const sessionData: SessionData = await response.json();
         console.log('Session data fetched:', sessionData);
-        
+
         if (sessionData.task && !originalTask) {
           setOriginalTask(sessionData.task);
         }
-        
+
         if (sessionData.browsers) {
-          const docData: Record<string, any> = {};
-          Object.entries(sessionData.browsers).forEach(([key, browser]: [string, any]) => {
+          const docData: Record<string, DocEntry> = {};
+          Object.entries(sessionData.browsers).forEach(([key, browser]) => {
             if (browser.documentation) {
               docData[key] = browser.documentation;
             }
@@ -304,7 +321,7 @@ export default function DocumentationCommitPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {Object.entries(documentation).map(([browserKey, docs]: [string, any]) => (
+                  {Object.entries(documentation).map(([browserKey, docs]) => (
                     <div key={browserKey} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                       <div className="flex items-center gap-2 mb-3">
                         <FileText className="w-4 h-4 text-blue-600" />
@@ -477,5 +494,12 @@ export default function DocumentationCommitPage() {
         </div>
       </div>
     </div>
+  );
+}
+export default function DocumentationCommitPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <DocumentationCommitContent />
+    </Suspense>
   );
 }
