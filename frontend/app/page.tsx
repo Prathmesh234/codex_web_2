@@ -1,15 +1,13 @@
 'use client'
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-// @ts-ignore: If you don't have types, install @types/appwrite or ignore for now
-import { Client, Account, Models } from 'appwrite';
+import { Client, Account, Models, OAuthProvider } from 'appwrite';
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import { Github } from "lucide-react";
 
 const client = new Client()
-  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT)
-  .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID);
+  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? 'https://fra.cloud.appwrite.io/v1')
+  .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID ?? '');
 const account = new Account(client);
 
 export default function HomePage() {
@@ -30,7 +28,7 @@ export default function HomePage() {
 
   const handleGithubLogin = () => {
     account.createOAuth2Session(
-      'github' as any,
+      OAuthProvider.Github,
       'http://localhost:3001/auth/success',
       'http://localhost:3001/auth/failure',
       ['user:email', 'repo']
