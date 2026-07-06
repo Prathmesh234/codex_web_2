@@ -1,9 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { Card } from "@/components/ui/card"
-import { XCircle, Loader2 } from "lucide-react"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { TaskCardToDo } from './TaskCardToDo';
 import { TaskCardCompleted } from './TaskCardCompleted';
 import { TaskCardDel } from './TaskCardDel';
@@ -25,7 +22,7 @@ export interface Task {
   }>
   sessionId?: string
   isLoading?: boolean
-  documentation?: Record<string, any>
+  documentation?: Record<string, unknown>
   repoInfo?: {
     repoName: string
     branchName: string
