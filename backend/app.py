@@ -13,7 +13,7 @@ from pathlib import Path
 import json
 import requests
 from codex_agent.repository_manager import clone_repository
-from codex_agent.kernel_agent import execute_terminal_command, ensure_container_running, check_container_health
+from codex_agent.kernel_agent import execute_terminal_command, ensure_container_running
 from codex_agent.codex_core_agent import complete_task
 from codex_agent.azure_queue import AzureQueueManager
 from fastapi import Cookie
@@ -381,6 +381,32 @@ async def run_browser_task(request: BrowserTaskRequest):
             detail=f"Error running browser task: {str(e)}"
         )
 
+async def run_browser_task_background(task_id: str, request: BrowserTaskRequest):
+    """Start a browser session in the background and record its result in active_tasks."""
+    try:
+        from web_agent.anchor_browser.session_management.anchor_session_start import start_anchor_session
+
+        session_info = start_anchor_session()
+        cdp_url = session_info['data']['cdp_url']
+        live_view_url = session_info['data']['live_view_url']
+        session_id = session_info['data']['id']
+
+        # Store session parameters for use by the WebSocket handler
+        web_agent_session_params[session_id] = {
+            'user_task': request.user_question,
+            'user_name': request.user_name,
+            'cdp_url': cdp_url
+        }
+
+        active_tasks[task_id] = {
+            "status": "running",
+            "session_id": session_id,
+            "live_view_url": live_view_url,
+        }
+    except Exception as e:
+        logger.error(f"Background browser task {task_id} failed: {str(e)}", exc_info=True)
+        active_tasks[task_id] = {"status": "error", "error": str(e)}
+
 @app.post("/api/run-browser-task-async")
 async def run_browser_task_async(request: BrowserTaskRequest, background_tasks: BackgroundTasks):
     """
@@ -446,13 +472,11 @@ def github_connected(request: Request):
 
 @app.get("/api/appwrite-test")
 def appwrite_test():
-    try:
-        # Try to get the current user (will fail if no session cookie, but proves connectivity)
-        result = account.get()
-        return {"status": "success", "user": result}
-    except Exception as e:
-        logger.error(f"Appwrite test error: {str(e)}")
-        return {"status": "error", "error": str(e)}
+    # Appwrite sessions are handled client-side; the backend has no Appwrite SDK client.
+    return {
+        "status": "error",
+        "error": "Appwrite is not configured on the backend. Authentication is handled by the frontend."
+    }
 
 
 @app.websocket("/ws/commands")

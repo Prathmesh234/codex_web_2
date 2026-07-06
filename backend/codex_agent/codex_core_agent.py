@@ -47,16 +47,19 @@ parent_env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=parent_env_path)
 print(f"[INFO] Also loading .env from: {parent_env_path}")
 
-# Initialize OpenAI client
-openai_api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI client lazily so the server can start without the key;
+# task execution fails with a clear error only when the client is actually needed.
+_client: Optional[OpenAI] = None
 
-if not openai_api_key:
-    raise ValueError("OPENAI_API_KEY environment variable is required")
-
-client = OpenAI(
-    api_key=openai_api_key
-)
-print("[INFO] OpenAI client initialized with gpt-4o-mini model")
+def get_openai_client() -> OpenAI:
+    global _client
+    if _client is None:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+        _client = OpenAI(api_key=openai_api_key)
+        print("[INFO] OpenAI client initialized with gpt-4o-mini model")
+    return _client
 
 # Initialize Jinja environment
 template_dir = Path(__file__).parent
@@ -171,7 +174,7 @@ async def complete_task_with_ws_streaming(task_name: str, repo_url: str, project
         logger.info("Making OpenAI API call with gpt-4o-mini model")
         
         try:
-            response = client.chat.completions.create(
+            response = get_openai_client().chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {
@@ -346,7 +349,7 @@ def complete_task(task_name: str, repo_url: str, project_name: str, container_ty
             logger.info("Making OpenAI API call with gpt-4o-mini model")
             
             try:
-                response = client.chat.completions.create(
+                response = get_openai_client().chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
                         {
