@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: Promise<{ sessionId: string }> }
 ) {
+  const { sessionId } = await params;
   try {
-    const { sessionId } = params;
-    
+
     // Forward the request to the backend
     const backendUrl = `http://localhost:8000/api/browser-session/${sessionId}`;
     const response = await fetch(backendUrl);
@@ -38,7 +38,7 @@ export async function GET(
     
     // Return a fallback response instead of an error
     return NextResponse.json({
-      session_id: params.sessionId,
+      session_id: sessionId,
       status: "active",
       browsers: {},
       task: "Web agent task in progress"
